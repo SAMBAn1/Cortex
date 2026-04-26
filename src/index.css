@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: 250 250 252;
+    --bg-elev: 255 255 255;
+    --bg-panel: 246 246 249;
+    --fg: 24 24 28;
+    --fg-muted: 90 90 100;
+    --fg-subtle: 150 150 160;
+    --border: 230 230 235;
+    --accent: 99 102 241;
+    --accent-muted: 224 226 254;
+    --success: 34 197 94;
+    --warn: 234 179 8;
+    --danger: 239 68 68;
+  }
+  .dark {
+    --bg: 14 14 18;
+    --bg-elev: 22 22 28;
+    --bg-panel: 18 18 24;
+    --fg: 235 235 240;
+    --fg-muted: 160 160 170;
+    --fg-subtle: 110 110 122;
+    --border: 38 38 46;
+    --accent: 129 140 248;
+    --accent-muted: 49 46 96;
+  }
+
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-feature-settings: "cv02","cv03","cv04","cv11";
+  }
+  ::selection { background: rgb(var(--accent) / 0.25); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--fg-subtle)); }
+}
+
+@layer components {
+  .icon-btn {
+    @apply inline-flex items-center justify-center rounded-lg w-9 h-9 text-fg-muted hover:text-fg hover:bg-bg-panel transition-colors;
+  }
+  .icon-btn-active {
+    @apply bg-accent-muted text-accent;
+  }
+  .panel {
+    @apply bg-bg-elev border border-border rounded-xl;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs;
+  }
+}
+
+.cm-editor { background: transparent !important; font-family: inherit !important; font-size: 15px; }
+.cm-editor.cm-focused { outline: none !important; }
+.cm-content { padding: 12px 0 !important; caret-color: rgb(var(--accent)); }
+.cm-gutters { background: transparent !important; border: none !important; color: rgb(var(--fg-subtle)) !important; }
+.cm-line { padding: 0 4px !important; }
+.cm-cursor { border-left-color: rgb(var(--accent)) !important; }
+.cm-activeLine { background: rgb(var(--bg-panel) / 0.5) !important; }
+.cm-selectionBackground { background: rgb(var(--accent) / 0.18) !important; }
