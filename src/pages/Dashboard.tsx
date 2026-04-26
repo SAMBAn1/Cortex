@@ -15,19 +15,22 @@ export default function Dashboard() {
 
   return (
     <div className="h-full flex flex-col p-4 gap-3 overflow-hidden">
+      {/* Top: full-width timeline */}
       <Timeline onOpenCalendar={() => navigate("/calendar")} />
 
-      <div className={cn("flex-1 grid gap-3 min-h-0", side === "right" ? "grid-cols-[1fr_320px]" : "grid-cols-[320px_1fr]")}>
+      {/* Middle: capture + AI */}
+      <div className={cn("grid gap-3 min-h-0", side === "right" ? "grid-cols-[1fr_340px]" : "grid-cols-[340px_1fr]")} style={{ flex: "1 1 0" }}>
         {side === "left" && <AIPanel />}
         <div className="flex flex-col gap-3 min-h-0 overflow-auto">
-          <div className="grid grid-cols-[1fr_280px] gap-3">
-            <QuickCapture />
-            <ActivityChart />
-          </div>
-          {notesCount > 0 && <RecentNotes />}
-          {notesCount === 0 && <EmptyState />}
+          <QuickCapture />
+          {notesCount > 0 ? <RecentNotes /> : <EmptyState />}
         </div>
         {side === "right" && <AIPanel />}
+      </div>
+
+      {/* Bottom: full-width activity chart */}
+      <div className="h-44 shrink-0">
+        <ActivityChart />
       </div>
     </div>
   );

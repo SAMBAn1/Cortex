@@ -6,6 +6,7 @@ import NotesPage from "./pages/Notes";
 import CalendarPage from "./pages/Calendar";
 import GraphPage from "./pages/Graph";
 import SettingsPage from "./pages/Settings";
+import Toaster from "./components/Toaster";
 import { useNotes } from "./store/notes";
 import { useSettings } from "./store/settings";
 import { seedIfEmpty } from "./lib/seed";
@@ -35,6 +36,7 @@ export default function App() {
 
   return (
     <HashRouter>
+      <Toaster />
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />

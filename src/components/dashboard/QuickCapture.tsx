@@ -1,10 +1,12 @@
 import { useRef, useState } from "react";
 import { useNotes } from "../../store/notes";
+import { useToasts } from "../../store/toast";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Sparkles } from "lucide-react";
 
 export default function QuickCapture() {
   const create = useNotes(s => s.create);
+  const push = useToasts(s => s.push);
   const navigate = useNavigate();
   const [val, setVal] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -13,7 +15,16 @@ export default function QuickCapture() {
     if (!val.trim()) return;
     const n = await create({ body: val });
     setVal("");
-    if (open) navigate(`/notes/${n.id}`);
+    if (open) {
+      navigate(`/notes/${n.id}`);
+    } else {
+      push({
+        kind: "success",
+        message: `Saved "${n.title}"`,
+        actionLabel: "Open",
+        onAction: () => navigate(`/notes/${n.id}`),
+      });
+    }
   }
 
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
