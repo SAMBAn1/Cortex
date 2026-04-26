@@ -8,6 +8,7 @@ import GraphPage from "./pages/Graph";
 import SettingsPage from "./pages/Settings";
 import Toaster from "./components/Toaster";
 import AuthGate from "./components/AuthGate";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { useNotes } from "./store/notes";
 import { useSettings } from "./store/settings";
 import { seedIfEmpty } from "./lib/seed";
@@ -46,6 +47,7 @@ export default function App() {
   }, [authedTick]);
 
   return (
+    <ErrorBoundary>
     <AuthGate>
       {(!loadedNotes || !loadedSettings) ? (
         <div className="h-full flex items-center justify-center text-fg-subtle text-sm">Loading…</div>
@@ -66,5 +68,6 @@ export default function App() {
         </HashRouter>
       )}
     </AuthGate>
+    </ErrorBoundary>
   );
 }
