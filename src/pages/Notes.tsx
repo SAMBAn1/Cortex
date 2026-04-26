@@ -84,7 +84,7 @@ export default function NotesPage() {
         </div>
       </aside>
       <div className="flex-1 min-w-0">
-        {id ? <Editor noteId={id} /> : <Empty />}
+        {id ? <Editor key={id} noteId={id} /> : <Empty />}
       </div>
     </div>
   );
@@ -125,13 +125,16 @@ function TreeView({ node, depth, activeId, onPick, onMove }: {
         );
       })}
       {node.notes.sort((a, b) => b.updatedAt - a.updatedAt).map(n => (
-        <button
+        <div
           key={n.id}
+          role="button"
+          tabIndex={0}
           draggable
           onDragStart={e => e.dataTransfer.setData("text/note-id", n.id)}
           onClick={() => onPick(n.id)}
+          onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(n.id); } }}
           className={cn(
-            "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-md text-left text-sm group",
+            "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-md text-left text-sm group cursor-pointer select-none",
             n.id === activeId ? "bg-accent-muted text-accent" : "hover:bg-bg-panel text-fg",
           )}
           style={{ paddingLeft: depth * 10 + 22 }}
@@ -140,7 +143,7 @@ function TreeView({ node, depth, activeId, onPick, onMove }: {
           <FileText size={13} className="shrink-0 text-fg-subtle group-hover:text-fg" />
           <span className="truncate flex-1">{n.title || "Untitled"}</span>
           <span className="text-[10px] text-fg-subtle">{formatDistanceToNow(n.updatedAt).split(" ")[0]}</span>
-        </button>
+        </div>
       ))}
     </div>
   );

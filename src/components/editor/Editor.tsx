@@ -3,10 +3,12 @@ import CodeMirror from "@uiw/react-codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { EditorView } from "@codemirror/view";
 import { useNotes } from "../../store/notes";
-import { Trash2, History, Tag, Calendar, Link2, Folder, CheckCircle2, Circle } from "lucide-react";
+import { Trash2, History, Tag, Calendar, Link2, Folder, CheckCircle2, Circle, Bold, Italic, List, ListChecks, Quote, Code, Heading1, Heading2 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/cn";
+import { makeCompletions } from "./completions";
+import { formatKeymap } from "./format-keymap";
 
 export default function Editor({ noteId }: { noteId: string }) {
   const note = useNotes(s => s.notes[noteId]);
@@ -17,6 +19,7 @@ export default function Editor({ noteId }: { noteId: string }) {
   const navigate = useNavigate();
   const [historyOpen, setHistoryOpen] = useState(false);
   const debounceRef = useRef<number | null>(null);
+  const cmRef = useRef<{ view?: EditorView }>({});
   const [local, setLocal] = useState(note?.body ?? "");
   const [savedAt, setSavedAt] = useState<number>(note?.updatedAt ?? 0);
 
@@ -40,11 +43,57 @@ export default function Editor({ noteId }: { noteId: string }) {
   const extensions = useMemo(() => [
     markdown({ base: markdownLanguage, codeLanguages: [] }),
     EditorView.lineWrapping,
+    formatKeymap,
+    makeCompletions({
+      getNotes: () => Object.values(useNotes.getState().notes),
+      currentNoteId: noteId,
+    }),
     EditorView.theme({
       "&": { color: "rgb(var(--fg))" },
       ".cm-line": { lineHeight: "1.7" },
+      ".cm-tooltip-autocomplete": {
+        background: "rgb(var(--bg-elev)) !important",
+        border: "1px solid rgb(var(--border)) !important",
+        borderRadius: "8px !important",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.2) !important",
+        overflow: "hidden",
+      },
+      ".cm-tooltip-autocomplete > ul > li": {
+        padding: "4px 8px !important",
+        fontSize: "13px !important",
+        color: "rgb(var(--fg))",
+      },
+      ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+        background: "rgb(var(--accent-muted)) !important",
+        color: "rgb(var(--accent)) !important",
+      },
     }),
-  ], []);
+  ], [noteId]);
+
+  function applyToEditor(fn: (view: EditorView) => void) {
+    const view = cmRef.current.view;
+    if (view) { fn(view); view.focus(); }
+  }
+  function wrapSel(prefix: string, suffix = prefix) {
+    applyToEditor(view => {
+      const { from, to } = view.state.selection.main;
+      const sel = view.state.doc.sliceString(from, to);
+      view.dispatch({
+        changes: { from, to, insert: `${prefix}${sel}${suffix}` },
+        selection: { anchor: sel ? to + prefix.length + suffix.length : from + prefix.length },
+      });
+    });
+  }
+  function lineWrap(prefix: string) {
+    applyToEditor(view => {
+      const { from } = view.state.selection.main;
+      const line = view.state.doc.lineAt(from);
+      view.dispatch({
+        changes: { from: line.from, insert: prefix },
+        selection: { anchor: from + prefix.length },
+      });
+    });
+  }
 
   if (!note) return <div className="p-6 text-fg-muted">Note not found.</div>;
 
@@ -81,12 +130,29 @@ export default function Editor({ noteId }: { noteId: string }) {
           </button>
         </div>
 
+        <div className="border-b border-border px-6 py-1.5 flex items-center gap-0.5 text-fg-muted overflow-x-auto">
+          <ToolBtn onClick={() => lineWrap("# ")} title="Heading 1 (Ctrl+Alt+1)"><Heading1 size={14} /></ToolBtn>
+          <ToolBtn onClick={() => lineWrap("## ")} title="Heading 2 (Ctrl+Alt+2)"><Heading2 size={14} /></ToolBtn>
+          <Sep />
+          <ToolBtn onClick={() => wrapSel("**")} title="Bold (Ctrl+B)"><Bold size={14} /></ToolBtn>
+          <ToolBtn onClick={() => wrapSel("*")} title="Italic (Ctrl+I)"><Italic size={14} /></ToolBtn>
+          <ToolBtn onClick={() => wrapSel("`")} title="Inline code (Ctrl+`)"><Code size={14} /></ToolBtn>
+          <Sep />
+          <ToolBtn onClick={() => lineWrap("- ")} title="Bullet list (Ctrl+Shift+8)"><List size={14} /></ToolBtn>
+          <ToolBtn onClick={() => lineWrap("- [ ] ")} title="Task (Ctrl+Shift+X)"><ListChecks size={14} /></ToolBtn>
+          <ToolBtn onClick={() => lineWrap("> ")} title="Quote (Ctrl+Shift+.)"><Quote size={14} /></ToolBtn>
+          <Sep />
+          <ToolBtn onClick={() => wrapSel("[[", "]]")} title="Wikilink"><Link2 size={14} /></ToolBtn>
+          <ToolBtn onClick={() => wrapSel("#", "")} title="Tag"><Tag size={14} /></ToolBtn>
+          <div className="ml-auto text-[10px] text-fg-subtle pl-2">Type <kbd className="px-1 py-0.5 bg-bg-panel rounded">[[</kbd> for notes, <kbd className="px-1 py-0.5 bg-bg-panel rounded">#</kbd> for tags, <kbd className="px-1 py-0.5 bg-bg-panel rounded">/</kbd> for menu</div>
+        </div>
         <div className="flex-1 overflow-auto px-6 py-2">
           <div className="max-w-3xl mx-auto">
             <CodeMirror
               value={local}
               onChange={onChange}
               extensions={extensions}
+              onCreateEditor={(view) => { cmRef.current.view = view; }}
               basicSetup={{
                 lineNumbers: false,
                 foldGutter: false,
@@ -94,7 +160,7 @@ export default function Editor({ noteId }: { noteId: string }) {
                 highlightActiveLine: false,
               }}
               theme="none"
-              placeholder="Start writing… # for headings, [[wikilinks]], #tags, dates like 'tomorrow at 3pm'"
+              placeholder="Start writing… # for headings, [[wikilinks]], #tags, dates like 'tomorrow at 3pm', / for menu"
             />
           </div>
         </div>
@@ -137,4 +203,14 @@ export default function Editor({ noteId }: { noteId: string }) {
       )}
     </div>
   );
+}
+
+function ToolBtn({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
+  return (
+    <button onClick={onClick} title={title} className="icon-btn h-7 w-7">{children}</button>
+  );
+}
+
+function Sep() {
+  return <div className="w-px h-4 bg-border mx-1" />;
 }
