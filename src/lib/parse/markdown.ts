@@ -45,16 +45,29 @@ export function lineDiff(prev: string, next: string) {
   return { added, removed };
 }
 
-/** Derive a title from body: first heading or first non-empty line. */
+/** Strip the most common markdown syntax for clean display titles. */
+function stripMd(s: string): string {
+  return s
+    .replace(/^[-*+]\s*\[[ xX]\]\s*/, "")    // task marker
+    .replace(/^[-*+]\s+/, "")                  // bullet marker
+    .replace(/\[\[([^\[\]\n|]+?)(?:\|[^\]]+)?\]\]/g, "$1") // wikilinks
+    .replace(/`([^`]+)`/g, "$1")              // inline code
+    .replace(/\*\*([^*]+)\*\*/g, "$1")        // bold
+    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1") // italic
+    .replace(/~~([^~]+)~~/g, "$1")            // strikethrough
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // [text](url)
+}
+
+/** Derive a title from body: first heading or first non-empty line. Strips markdown syntax. */
 export function deriveTitle(body: string, fallback = "Untitled"): string {
   const lines = body.split("\n");
   for (const l of lines) {
     const h = l.match(/^\s*#{1,6}\s+(.+)$/);
-    if (h) return h[1].trim().slice(0, 120);
+    if (h) return stripMd(h[1].trim()).slice(0, 120);
   }
   for (const l of lines) {
     const t = l.trim();
-    if (t) return t.replace(/^[-*]\s*\[[ xX]\]\s*/, "").slice(0, 120);
+    if (t) return stripMd(t).slice(0, 120);
   }
   return fallback;
 }

@@ -86,7 +86,15 @@ function buildDecorations(view: EditorView): DecorationSet {
   type Item = { from: number; to: number; deco: Decoration };
   const items: Item[] = [];
 
-  const cursorOnRange = (from: number, to: number) => {
+  // Cursor inside the specific node (not just on the same line). Used for inline things like
+  // **bold**, *italic*, `code`, [[wikilink]], #tag.
+  const cursorInRange = (from: number, to: number) => {
+    if (hasSelection && sel.from <= to && sel.to >= from) return true;
+    return cursorPos >= from && cursorPos <= to;
+  };
+  // Cursor on the same LINE as the node. Used for line-level things like # headings, > quotes,
+  // ``` code fences, --- horizontal rules.
+  const cursorOnLine = (from: number, to: number) => {
     if (hasSelection && sel.from <= to && sel.to >= from) return true;
     const lineFrom = view.state.doc.lineAt(from).number;
     const lineTo = view.state.doc.lineAt(to).number;
@@ -100,23 +108,22 @@ function buildDecorations(view: EditorView): DecorationSet {
       enter(node) {
         const name = node.type.name;
 
-        // Headings
+        // Headings (line-level — markers hide unless cursor is on that line)
         const headingMatch = /^ATXHeading([1-6])$/.exec(name);
         if (headingMatch) {
           const level = +headingMatch[1];
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: `cm-h${level}` }) });
-          if (!cursorOnRange(node.from, node.to)) {
-            // hide "# " (level + space)
+          if (!cursorOnLine(node.from, node.to)) {
             const markEnd = Math.min(node.to, node.from + level + 1);
             items.push({ from: node.from, to: markEnd, deco: Decoration.replace({}) });
           }
           return;
         }
 
-        // Bold (**text**)
+        // Bold (**text**) — markers hide unless cursor is INSIDE the node
         if (name === "StrongEmphasis") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-strong" }) });
-          if (!cursorOnRange(node.from, node.to) && node.to - node.from >= 4) {
+          if (!cursorInRange(node.from, node.to) && node.to - node.from >= 4) {
             items.push({ from: node.from, to: node.from + 2, deco: Decoration.replace({}) });
             items.push({ from: node.to - 2, to: node.to, deco: Decoration.replace({}) });
           }
@@ -126,7 +133,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         // Italic (*text* or _text_)
         if (name === "Emphasis") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-em" }) });
-          if (!cursorOnRange(node.from, node.to) && node.to - node.from >= 2) {
+          if (!cursorInRange(node.from, node.to) && node.to - node.from >= 2) {
             items.push({ from: node.from, to: node.from + 1, deco: Decoration.replace({}) });
             items.push({ from: node.to - 1, to: node.to, deco: Decoration.replace({}) });
           }
@@ -136,7 +143,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         // Inline code (`text`)
         if (name === "InlineCode") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-inline-code" }) });
-          if (!cursorOnRange(node.from, node.to) && node.to - node.from >= 2) {
+          if (!cursorInRange(node.from, node.to) && node.to - node.from >= 2) {
             items.push({ from: node.from, to: node.from + 1, deco: Decoration.replace({}) });
             items.push({ from: node.to - 1, to: node.to, deco: Decoration.replace({}) });
           }
@@ -146,22 +153,22 @@ function buildDecorations(view: EditorView): DecorationSet {
         // Strikethrough (~~text~~ — GFM)
         if (name === "Strikethrough") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-strike" }) });
-          if (!cursorOnRange(node.from, node.to) && node.to - node.from >= 4) {
+          if (!cursorInRange(node.from, node.to) && node.to - node.from >= 4) {
             items.push({ from: node.from, to: node.from + 2, deco: Decoration.replace({}) });
             items.push({ from: node.to - 2, to: node.to, deco: Decoration.replace({}) });
           }
           return;
         }
 
-        // Block quote
+        // Block quote (line-level)
         if (name === "Blockquote") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-blockquote" }) });
         }
-        if (name === "QuoteMark" && !cursorOnRange(node.from, node.to)) {
+        if (name === "QuoteMark" && !cursorOnLine(node.from, node.to)) {
           items.push({ from: node.from, to: Math.min(node.to + 1, view.state.doc.length), deco: Decoration.replace({}) });
         }
 
-        // Task marker
+        // Task marker — always render as checkbox
         if (name === "TaskMarker") {
           const text = view.state.doc.sliceString(node.from, node.to);
           const checked = /\[[xX]\]/.test(text);
@@ -173,18 +180,18 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
 
-        // Code blocks (fenced) — apply class for monospace styling, hide fences when cursor not in
+        // Fenced code block (line-level — fences hide when cursor not on a fence line)
         if (name === "FencedCode") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-fenced-code" }) });
-          if (!cursorOnRange(node.from, node.to)) {
-            // Hide opening fence line and closing fence line
-            const openLine = view.state.doc.lineAt(node.from);
+          const openLine = view.state.doc.lineAt(node.from);
+          const closeLine = view.state.doc.lineAt(node.to);
+          // hide opening fence if cursor not on it
+          if (cursorLineNum !== openLine.number) {
             items.push({ from: openLine.from, to: Math.min(openLine.to + 1, view.state.doc.length), deco: Decoration.replace({}) });
-            const closeLine = view.state.doc.lineAt(node.to);
-            // Only hide closing if it's a fence line (starts with ```)
-            if (/^\s*```/.test(closeLine.text)) {
-              items.push({ from: closeLine.from, to: closeLine.to, deco: Decoration.replace({}) });
-            }
+          }
+          // hide closing fence if cursor not on it AND it's actually a fence line
+          if (cursorLineNum !== closeLine.number && /^\s*```/.test(closeLine.text)) {
+            items.push({ from: closeLine.from, to: closeLine.to, deco: Decoration.replace({}) });
           }
           return;
         }
@@ -192,41 +199,39 @@ function buildDecorations(view: EditorView): DecorationSet {
     });
   }
 
-  // Custom: wikilinks [[Note Title]]
+  // Custom: wikilinks [[Note Title]] — cursor inside the brackets shows raw, else chip
   const docText = view.state.doc.toString();
   const wikiRe = /\[\[([^\[\]\n]+?)\]\]/g;
   let m: RegExpExecArray | null;
   while ((m = wikiRe.exec(docText))) {
     const from = m.index;
     const to = from + m[0].length;
-    if (!cursorOnRange(from, to)) {
+    if (!cursorInRange(from, to)) {
       items.push({ from, to, deco: Decoration.replace({ widget: new WikilinkWidget(m[1].trim()) }) });
     } else {
       items.push({ from, to, deco: Decoration.mark({ class: "cm-wikilink-raw" }) });
     }
   }
 
-  // Custom: tags #word — only outside code, only when off line
+  // Custom: tags #word — chip when cursor not inside, raw when inside
   const tagRe = /(?:^|[\s])(#[\w/-]+)/g;
   let tm: RegExpExecArray | null;
   while ((tm = tagRe.exec(docText))) {
     const tagText = tm[1];
     const from = tm.index + tm[0].length - tagText.length;
     const to = from + tagText.length;
-    if (!cursorOnRange(from, to)) {
+    if (!cursorInRange(from, to)) {
       items.push({ from, to, deco: Decoration.replace({ widget: new TagWidget(tagText.slice(1)) }) });
     } else {
       items.push({ from, to, deco: Decoration.mark({ class: "cm-tag-raw" }) });
     }
   }
 
-  // Custom: horizontal rule (--- on its own line)
+  // Horizontal rule (line-level — replace unless cursor is on that line)
   for (let i = 1; i <= view.state.doc.lines; i++) {
     const line = view.state.doc.line(i);
-    if (/^\s*-{3,}\s*$/.test(line.text)) {
-      if (!cursorOnRange(line.from, line.to)) {
-        items.push({ from: line.from, to: line.to, deco: Decoration.replace({ widget: new HrWidget() }) });
-      }
+    if (/^\s*-{3,}\s*$/.test(line.text) && cursorLineNum !== line.number) {
+      items.push({ from: line.from, to: line.to, deco: Decoration.replace({ widget: new HrWidget() }) });
     }
   }
 
