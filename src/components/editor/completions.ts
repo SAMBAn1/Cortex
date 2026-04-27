@@ -79,7 +79,8 @@ export function makeCompletions(opts: {
     const m = /^(\s*)\/(\w*)$/.exec(before);
     if (!m) return null;
     const query = m[2].toLowerCase();
-    const start = ctx.pos - m[2].length;
+    // Include the `/` itself in the replacement range so the slash gets removed.
+    const start = ctx.pos - m[2].length - 1;
     const items: Completion[] = [
       { label: "h1", detail: "Heading 1", apply: "# " },
       { label: "h2", detail: "Heading 2", apply: "## " },
