@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/cn";
 import { makeCompletions } from "./completions";
 import { formatKeymap } from "./format-keymap";
+import { livePreview } from "./live-preview";
 
 // Build extensions ONCE per component lifetime. Component is keyed by noteId in parent
 // so it remounts on note change — extensions never need to "reconfigure" mid-life.
@@ -17,6 +18,7 @@ function buildExtensions(noteId: string) {
     markdown({ base: markdownLanguage, codeLanguages: [] }),
     EditorView.lineWrapping,
     formatKeymap,
+    livePreview,
     makeCompletions({
       getNotes: () => Object.values(useNotes.getState().notes),
       currentNoteId: noteId,
@@ -67,6 +69,25 @@ export default function Editor({ noteId }: { noteId: string }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Handle wikilink-chip click: jump to that note, creating it if it doesn't exist
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const target = (e as CustomEvent<string>).detail;
+      const all = Object.values(useNotes.getState().notes);
+      const found = all.find(n => n.title.toLowerCase() === target.toLowerCase());
+      if (found) {
+        navigate(`/notes/${found.id}`);
+      } else {
+        // create on the fly
+        useNotes.getState().create({ body: `# ${target}\n\n` }).then(n => {
+          navigate(`/notes/${n.id}`);
+        });
+      }
+    }
+    window.addEventListener("cortex:open-wikilink", onOpen);
+    return () => window.removeEventListener("cortex:open-wikilink", onOpen);
+  }, [navigate]);
 
   const extensions = useMemo(() => buildExtensions(noteId), [noteId]);
 
