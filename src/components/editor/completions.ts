@@ -20,6 +20,20 @@ export function makeCompletions(opts: {
     if (!m) return null;
     const query = m[1].toLowerCase();
     const start = ctx.pos - m[1].length;
+    // Are there already closing ]] right after the cursor (from auto-bracket-pairing)?
+    const after = ctx.state.doc.sliceString(ctx.pos, ctx.pos + 2);
+    const hasClosing = after === "]]";
+
+    function makeApply(insert: string) {
+      return (view: any, _completion: any, from: number, to: number) => {
+        // Replace the query (and the auto-closed ]] if present) with `title]]`.
+        view.dispatch({
+          changes: { from, to: hasClosing ? to + 2 : to, insert: insert + "]]" },
+          selection: { anchor: from + insert.length + 2 },
+        });
+      };
+    }
+
     const notes = getNotes().filter(n => n.id !== currentNoteId);
     const titles = new Set<string>();
     const options: Completion[] = [];
@@ -32,13 +46,12 @@ export function makeCompletions(opts: {
           label: t,
           type: "variable",
           detail: n.folder || undefined,
-          apply: t + "]]",
+          apply: makeApply(t),
         });
       }
     }
-    // Allow creating a new note title
     if (query && !titles.has(m[1])) {
-      options.push({ label: m[1], type: "text", detail: "new note", apply: m[1] + "]]" });
+      options.push({ label: m[1], type: "text", detail: "new note", apply: makeApply(m[1]) });
     }
     return { from: start, options, validFor: /^[^\]\n]*$/ };
   }
