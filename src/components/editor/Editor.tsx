@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { EditorView } from "@codemirror/view";
@@ -10,37 +10,10 @@ import { cn } from "../../lib/cn";
 import { makeCompletions } from "./completions";
 import { formatKeymap } from "./format-keymap";
 
-export default function Editor({ noteId }: { noteId: string }) {
-  const note = useNotes(s => s.notes[noteId]);
-  const update = useNotes(s => s.update);
-  const remove = useNotes(s => s.remove);
-  const loadEdits = useNotes(s => s.loadEdits);
-  const edits = useNotes(s => s.edits[noteId] ?? []);
-  const navigate = useNavigate();
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const debounceRef = useRef<number | null>(null);
-  const cmRef = useRef<{ view?: EditorView }>({});
-  const [local, setLocal] = useState(note?.body ?? "");
-  const [savedAt, setSavedAt] = useState<number>(note?.updatedAt ?? 0);
-
-  useEffect(() => {
-    if (note) {
-      setLocal(note.body);
-      setSavedAt(note.updatedAt);
-      loadEdits(note.id);
-    }
-  }, [noteId]);
-
-  function onChange(v: string) {
-    setLocal(v);
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(async () => {
-      await update(noteId, { body: v });
-      setSavedAt(Date.now());
-    }, 500);
-  }
-
-  const extensions = useMemo(() => [
+// Build extensions ONCE per component lifetime. Component is keyed by noteId in parent
+// so it remounts on note change — extensions never need to "reconfigure" mid-life.
+function buildExtensions(noteId: string) {
+  return [
     markdown({ base: markdownLanguage, codeLanguages: [] }),
     EditorView.lineWrapping,
     formatKeymap,
@@ -68,11 +41,65 @@ export default function Editor({ noteId }: { noteId: string }) {
         color: "rgb(var(--accent)) !important",
       },
     }),
-  ], [noteId]);
+  ];
+}
+
+export default function Editor({ noteId }: { noteId: string }) {
+  const note = useNotes(useCallback((s) => s.notes[noteId], [noteId]));
+  const update = useNotes(s => s.update);
+  const remove = useNotes(s => s.remove);
+  const loadEdits = useNotes(s => s.loadEdits);
+  const editsForId = useNotes(useCallback((s) => s.edits[noteId], [noteId]));
+  const edits = editsForId ?? EMPTY_EDITS;
+  const navigate = useNavigate();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const debounceRef = useRef<number | null>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const [local, setLocal] = useState(note?.body ?? "");
+  const [savedAt, setSavedAt] = useState<number>(note?.updatedAt ?? 0);
+
+  // Initialize local state on first mount only (component is keyed by noteId)
+  useEffect(() => {
+    if (note) {
+      setLocal(note.body);
+      setSavedAt(note.updatedAt);
+      loadEdits(note.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const extensions = useMemo(() => buildExtensions(noteId), [noteId]);
+
+  const onChange = useCallback((v: string) => {
+    setLocal(v);
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(async () => {
+      await update(noteId, { body: v });
+      setSavedAt(Date.now());
+    }, 500);
+  }, [noteId, update]);
+
+  const onCreate = useCallback((view: EditorView) => {
+    viewRef.current = view;
+  }, []);
+
+  if (!note) {
+    return <div className="p-6 text-fg-muted">Note not loaded yet — try refreshing.</div>;
+  }
+
+  async function onDelete() {
+    if (!confirm("Delete this note? This cannot be undone.")) return;
+    await remove(noteId);
+    navigate("/notes");
+  }
+
+  async function toggleComplete() {
+    await update(noteId, { completed: !note!.completed });
+  }
 
   function applyToEditor(fn: (view: EditorView) => void) {
-    const view = cmRef.current.view;
-    if (view) { fn(view); view.focus(); }
+    const v = viewRef.current;
+    if (v) { fn(v); v.focus(); }
   }
   function wrapSel(prefix: string, suffix = prefix) {
     applyToEditor(view => {
@@ -95,18 +122,6 @@ export default function Editor({ noteId }: { noteId: string }) {
     });
   }
 
-  if (!note) return <div className="p-6 text-fg-muted">Note not found.</div>;
-
-  async function onDelete() {
-    if (!confirm("Delete this note? This cannot be undone.")) return;
-    await remove(noteId);
-    navigate("/notes");
-  }
-
-  async function toggleComplete() {
-    await update(noteId, { completed: !note.completed });
-  }
-
   return (
     <div className="h-full flex">
       <div className="flex-1 flex flex-col min-w-0">
@@ -118,7 +133,7 @@ export default function Editor({ noteId }: { noteId: string }) {
             <div className={cn("text-base font-medium truncate", note.completed && "line-through opacity-70")}>{note.title || "Untitled"}</div>
             <div className="text-[11px] text-fg-subtle flex items-center gap-3">
               <span>Created {format(note.createdAt, "MMM d, yyyy · HH:mm")}</span>
-              <span>· Saved {formatDistanceToNow(savedAt, { addSuffix: true })}</span>
+              <span>· Saved {formatDistanceToNow(savedAt || note.updatedAt, { addSuffix: true })}</span>
               {note.folder && <span className="flex items-center gap-1"><Folder size={10} /> {note.folder}</span>}
             </div>
           </div>
@@ -138,29 +153,25 @@ export default function Editor({ noteId }: { noteId: string }) {
           <ToolBtn onClick={() => wrapSel("*")} title="Italic (Ctrl+I)"><Italic size={14} /></ToolBtn>
           <ToolBtn onClick={() => wrapSel("`")} title="Inline code (Ctrl+`)"><Code size={14} /></ToolBtn>
           <Sep />
-          <ToolBtn onClick={() => lineWrap("- ")} title="Bullet list (Ctrl+Shift+8)"><List size={14} /></ToolBtn>
-          <ToolBtn onClick={() => lineWrap("- [ ] ")} title="Task (Ctrl+Shift+X)"><ListChecks size={14} /></ToolBtn>
-          <ToolBtn onClick={() => lineWrap("> ")} title="Quote (Ctrl+Shift+.)"><Quote size={14} /></ToolBtn>
+          <ToolBtn onClick={() => lineWrap("- ")} title="Bullet list"><List size={14} /></ToolBtn>
+          <ToolBtn onClick={() => lineWrap("- [ ] ")} title="Task"><ListChecks size={14} /></ToolBtn>
+          <ToolBtn onClick={() => lineWrap("> ")} title="Quote"><Quote size={14} /></ToolBtn>
           <Sep />
           <ToolBtn onClick={() => wrapSel("[[", "]]")} title="Wikilink"><Link2 size={14} /></ToolBtn>
           <ToolBtn onClick={() => wrapSel("#", "")} title="Tag"><Tag size={14} /></ToolBtn>
-          <div className="ml-auto text-[10px] text-fg-subtle pl-2">Type <kbd className="px-1 py-0.5 bg-bg-panel rounded">[[</kbd> for notes, <kbd className="px-1 py-0.5 bg-bg-panel rounded">#</kbd> for tags, <kbd className="px-1 py-0.5 bg-bg-panel rounded">/</kbd> for menu</div>
+          <div className="ml-auto text-[10px] text-fg-subtle pl-2 hidden md:block">Type <kbd className="px-1 py-0.5 bg-bg-panel rounded">[[</kbd> for notes, <kbd className="px-1 py-0.5 bg-bg-panel rounded">#</kbd> for tags, <kbd className="px-1 py-0.5 bg-bg-panel rounded">/</kbd> for menu</div>
         </div>
+
         <div className="flex-1 overflow-auto px-6 py-2">
           <div className="max-w-3xl mx-auto">
             <CodeMirror
               value={local}
               onChange={onChange}
               extensions={extensions}
-              onCreateEditor={(view) => { cmRef.current.view = view; }}
-              basicSetup={{
-                lineNumbers: false,
-                foldGutter: false,
-                highlightActiveLineGutter: false,
-                highlightActiveLine: false,
-              }}
+              onCreateEditor={onCreate}
+              basicSetup={BASIC_SETUP}
               theme="none"
-              placeholder="Start writing… # for headings, [[wikilinks]], #tags, dates like 'tomorrow at 3pm', / for menu"
+              placeholder="Start writing… use # for headings, [[ for note links, # for tags, / for menu"
             />
           </div>
         </div>
@@ -205,10 +216,17 @@ export default function Editor({ noteId }: { noteId: string }) {
   );
 }
 
+const BASIC_SETUP = {
+  lineNumbers: false,
+  foldGutter: false,
+  highlightActiveLineGutter: false,
+  highlightActiveLine: false,
+};
+
+const EMPTY_EDITS: never[] = [];
+
 function ToolBtn({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
-  return (
-    <button onClick={onClick} title={title} className="icon-btn h-7 w-7">{children}</button>
-  );
+  return <button onClick={onClick} title={title} className="icon-btn h-7 w-7">{children}</button>;
 }
 
 function Sep() {
