@@ -14,6 +14,8 @@ export interface SupabaseConfig {
 }
 
 export function getSupabaseConfig(): SupabaseConfig | null {
+  // Test mode forces local-only IDB so E2E tests don't need to authenticate.
+  if (import.meta.env.VITE_TEST_MODE === "1") return null;
   const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
   if (!url || !anonKey) return null;

@@ -36,21 +36,26 @@ export function makeCompletions(opts: {
 
     const notes = getNotes().filter(n => n.id !== currentNoteId);
     const titles = new Set<string>();
-    const options: Completion[] = [];
+    const matched: Completion[] = [];
     for (const n of notes) {
       const t = n.title || "Untitled";
       if (titles.has(t)) continue;
       titles.add(t);
       if (!query || t.toLowerCase().includes(query)) {
-        options.push({
+        matched.push({
           label: t,
           type: "variable",
           detail: n.folder || undefined,
           apply: makeApply(t),
+          // Boost existing-note matches above the "new note" fallback so the auto-selected
+          // first option is always a real match when one exists.
+          boost: 99,
         });
       }
     }
-    if (query && !titles.has(m[1])) {
+    const options: Completion[] = [...matched];
+    // Offer "new note" only when NO existing matches (or query exactly equals nothing).
+    if (query && matched.length === 0 && !titles.has(m[1])) {
       options.push({ label: m[1], type: "text", detail: "new note", apply: makeApply(m[1]) });
     }
     return { from: start, options, validFor: /^[^\]\n]*$/ };
@@ -65,50 +70,78 @@ export function makeCompletions(opts: {
     const start = ctx.pos - m[1].length;
     const tags = new Set<string>();
     for (const n of getNotes()) for (const t of n.tags) tags.add(t);
-    const options: Completion[] = [...tags]
+    const matched: Completion[] = [...tags]
       .filter(t => !query || t.toLowerCase().includes(query))
-      .map(t => ({ label: t, type: "keyword", apply: t }));
-    if (query && !tags.has(m[1])) options.push({ label: m[1], type: "text", detail: "new tag", apply: m[1] });
+      .map(t => ({ label: t, type: "keyword", apply: t, boost: 99 }));
+    const options: Completion[] = [...matched];
+    if (query && matched.length === 0 && !tags.has(m[1])) {
+      options.push({ label: m[1], type: "text", detail: "new tag", apply: m[1] });
+    }
     return { from: start, options, validFor: /^[\w/-]*$/ };
   }
 
   function slashSource(ctx: CompletionContext): CompletionResult | null {
     const line = ctx.state.doc.lineAt(ctx.pos);
     const before = line.text.slice(0, ctx.pos - line.from);
-    // Slash menu only at start of line (allowing whitespace)
     const m = /^(\s*)\/(\w*)$/.exec(before);
     if (!m) return null;
     const query = m[2].toLowerCase();
-    // Include the `/` itself in the replacement range so the slash gets removed.
-    const start = ctx.pos - m[2].length - 1;
-    const items: Completion[] = [
-      { label: "h1", detail: "Heading 1", apply: "# " },
-      { label: "h2", detail: "Heading 2", apply: "## " },
-      { label: "h3", detail: "Heading 3", apply: "### " },
-      { label: "todo", detail: "Task list item", apply: "- [ ] " },
-      { label: "list", detail: "Bullet list", apply: "- " },
-      { label: "numbered", detail: "Numbered list", apply: "1. " },
-      { label: "quote", detail: "Blockquote", apply: "> " },
-      { label: "code", detail: "Code block", apply: "```\n\n```" },
-      { label: "table", detail: "Table", apply: "| Col | Col |\n| --- | --- |\n|     |     |" },
-      { label: "hr", detail: "Horizontal rule", apply: "---" },
-      { label: "link", detail: "Link", apply: "[text](url)" },
-      { label: "image", detail: "Image", apply: "![alt](url)" },
-      { label: "tag", detail: "Tag", apply: "#" },
-      { label: "wikilink", detail: "Link to a note", apply: "[[" },
-      { label: "today", detail: "Today's date", apply: new Date().toISOString().slice(0, 10) },
+    // Anchor the completion AFTER the `/` so CM uses the query (without `/`) for filtering.
+    // The apply function reaches back 1 char to also delete the `/`.
+    const slashPos = ctx.pos - m[2].length - 1;
+    const queryStart = slashPos + 1;
+
+    function applyAt(text: string, cursorOffset: number) {
+      return (view: any, _c: any, from: number, to: number) => {
+        // `from` is queryStart (after `/`); we extend back by 1 to also remove the `/`.
+        const realFrom = from - 1;
+        view.dispatch({
+          changes: { from: realFrom, to, insert: text },
+          selection: { anchor: realFrom + cursorOffset },
+        });
+      };
+    }
+
+    const items: { label: string; detail: string; apply: any }[] = [
+      { label: "h1", detail: "Heading 1", apply: applyAt("# ", 2) },
+      { label: "h2", detail: "Heading 2", apply: applyAt("## ", 3) },
+      { label: "h3", detail: "Heading 3", apply: applyAt("### ", 4) },
+      { label: "todo", detail: "Task list item", apply: applyAt("- [ ] ", 6) },
+      { label: "list", detail: "Bullet list", apply: applyAt("- ", 2) },
+      { label: "numbered", detail: "Numbered list", apply: applyAt("1. ", 3) },
+      { label: "quote", detail: "Blockquote", apply: applyAt("> ", 2) },
+      { label: "code", detail: "Code block", apply: applyAt("```\n\n```\n", 4) },
+      { label: "table", detail: "Table", apply: applyAt("| Col | Col |\n| --- | --- |\n|     |     |\n", 2) },
+      { label: "hr", detail: "Horizontal rule", apply: applyAt("---\n", 4) },
+      { label: "link", detail: "Link", apply: applyAt("[text](url)", 1) },
+      { label: "image", detail: "Image", apply: applyAt("![alt](url)", 2) },
+      { label: "tag", detail: "Tag", apply: applyAt("#", 1) },
+      { label: "wikilink", detail: "Link to a note", apply: applyAt("[[]]", 2) },
+      { label: "today", detail: "Today's date", apply: applyAt(new Date().toISOString().slice(0, 10), 10) },
     ];
     const options = items
-      .filter(i => !query || i.label.toLowerCase().includes(query) || (i.detail ?? "").toLowerCase().includes(query))
-      .map(i => ({ ...i, type: "function" as const }));
-    return { from: start, options, validFor: /^\w*$/ };
+      .filter(i => !query || i.label.toLowerCase().includes(query) || i.detail.toLowerCase().includes(query))
+      .map(i => ({ label: i.label, detail: i.detail, apply: i.apply, type: "function" as const }));
+    return { from: queryStart, options, validFor: /^\w*$/ };
+  }
+
+  function combined(ctx: CompletionContext): CompletionResult | null {
+    try {
+      return wikilinkSource(ctx) || tagSource(ctx) || slashSource(ctx);
+    } catch {
+      return null;
+    }
   }
 
   return autocompletion({
-    override: [wikilinkSource, tagSource, slashSource],
+    override: [combined],
     activateOnTyping: true,
     closeOnBlur: true,
     icons: true,
     defaultKeymap: true,
+    // Ensure first option is auto-selected so Enter accepts it.
+    selectOnOpen: true,
+    // Explicitly require Enter to commit (not just Tab) — CM's default has both.
+    aboveCursor: false,
   });
 }

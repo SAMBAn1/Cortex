@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { EditorView } from "@codemirror/view";
+import { EditorView, drawSelection, dropCursor, keymap as cmKeymap } from "@codemirror/view";
+import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { closeBrackets, closeBracketsKeymap, completionStatus, currentCompletions, startCompletion, acceptCompletion } from "@codemirror/autocomplete";
+import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { useNotes } from "../../store/notes";
 import { Trash2, History, Tag, Calendar, Link2, Folder, CheckCircle2, Circle, Bold, Italic, List, ListChecks, Quote, Code, Heading1, Heading2 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
@@ -15,6 +18,18 @@ import { livePreview } from "./live-preview";
 // so it remounts on note change — extensions never need to "reconfigure" mid-life.
 function buildExtensions(noteId: string) {
   return [
+    history(),
+    drawSelection(),
+    dropCursor(),
+    indentOnInput(),
+    closeBrackets(),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    cmKeymap.of([
+      ...closeBracketsKeymap,
+      ...defaultKeymap,
+      ...historyKeymap,
+      indentWithTab,
+    ]),
     markdown({ base: markdownLanguage, codeLanguages: [] }),
     EditorView.lineWrapping,
     formatKeymap,
@@ -102,6 +117,10 @@ export default function Editor({ noteId }: { noteId: string }) {
 
   const onCreate = useCallback((view: EditorView) => {
     viewRef.current = view;
+    if (import.meta.env.VITE_TEST_MODE === "1") {
+      (window as any).__cm = view;
+      (window as any).__cmAuto = { completionStatus, currentCompletions, startCompletion, acceptCompletion };
+    }
   }, []);
 
   if (!note) {
@@ -237,12 +256,10 @@ export default function Editor({ noteId }: { noteId: string }) {
   );
 }
 
-const BASIC_SETUP = {
-  lineNumbers: false,
-  foldGutter: false,
-  highlightActiveLineGutter: false,
-  highlightActiveLine: false,
-};
+// Disabling basicSetup entirely. uiw/react-codemirror's basicSetup flags weren't reliably
+// disabling its built-in autocompletion, which conflicted with ours and silently broke the
+// tooltip. We re-add only the bits we want via extensions.
+const BASIC_SETUP = false as const;
 
 const EMPTY_EDITS: never[] = [];
 

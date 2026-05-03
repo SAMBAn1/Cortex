@@ -235,10 +235,10 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   }
 
-  // Sort by from, then by to (longer ranges first to avoid overlap issues with mark vs replace)
-  items.sort((a, b) => a.from - b.from || b.to - a.to);
-  for (const it of items) builder.add(it.from, it.to, it.deco);
-  return builder.finish();
+  void builder; // unused — Decoration.set() handles sorting
+  // Decoration.set() sorts ranges and resolves startSide ordering for us — much safer than
+  // a hand-built RangeSetBuilder which throws on out-of-order ranges.
+  return Decoration.set(items.map(it => it.deco.range(it.from, it.to)), true);
 }
 
 export const livePreview = ViewPlugin.fromClass(

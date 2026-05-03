@@ -2,8 +2,20 @@ import { getStorage } from "./storage";
 import { useNotes } from "../store/notes";
 
 const SEED_KEY = "cortex_seeded_v1";
+let seedingInFlight: Promise<void> | null = null;
 
 export async function seedIfEmpty() {
+  // No seeding in E2E test mode — tests need a known-empty starting state.
+  if (import.meta.env.VITE_TEST_MODE === "1") return;
+  // Guard against React StrictMode double-invocation: dedupe concurrent calls.
+  if (seedingInFlight) return seedingInFlight;
+  if (localStorage.getItem(SEED_KEY)) return;
+  seedingInFlight = doSeed().finally(() => { seedingInFlight = null; });
+  return seedingInFlight;
+}
+
+async function doSeed() {
+  // Re-check inside the deduped flow.
   if (localStorage.getItem(SEED_KEY)) return;
   const storage = getStorage();
   const existing = await storage.listNotes();
@@ -11,6 +23,8 @@ export async function seedIfEmpty() {
     localStorage.setItem(SEED_KEY, "1");
     return;
   }
+  // Mark as seeded BEFORE creating, so any concurrent re-entry exits early.
+  localStorage.setItem(SEED_KEY, "1");
   const create = useNotes.getState().create;
   await create({
     folder: "welcome",
