@@ -90,6 +90,11 @@
   display: inline-block;
   border-radius: 6px;
 }
+.cm-fence-mark {
+  color: rgb(var(--fg-subtle));
+  opacity: 0.55;
+  font-size: 0.75em;
+}
 .cm-blockquote {
   border-left: 3px solid rgb(var(--accent));
   padding-left: 8px;

@@ -140,12 +140,17 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
 
-        // Inline code (`text`)
+        // Inline code — supports any number of leading/trailing backticks (`x`, ``x``, ```x``` etc.)
         if (name === "InlineCode") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-inline-code" }) });
-          if (!cursorInRange(node.from, node.to) && node.to - node.from >= 2) {
-            items.push({ from: node.from, to: node.from + 1, deco: Decoration.replace({}) });
-            items.push({ from: node.to - 1, to: node.to, deco: Decoration.replace({}) });
+          if (!cursorInRange(node.from, node.to)) {
+            const text = view.state.doc.sliceString(node.from, node.to);
+            const open = text.match(/^`+/)?.[0]?.length ?? 0;
+            const close = text.match(/`+$/)?.[0]?.length ?? 0;
+            if (open > 0 && close > 0 && open + close < text.length) {
+              items.push({ from: node.from, to: node.from + open, deco: Decoration.replace({}) });
+              items.push({ from: node.to - close, to: node.to, deco: Decoration.replace({}) });
+            }
           }
           return;
         }
@@ -180,18 +185,21 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
 
-        // Fenced code block (line-level — fences hide when cursor not on a fence line)
+        // Fenced code block — apply monospace style to whole block. Don't hide fence LINES
+        // (replacing across newlines isn't allowed in ViewPlugin decorations); just style
+        // the fence chars subtly. Cleaner than crashing.
         if (name === "FencedCode") {
           items.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-fenced-code" }) });
           const openLine = view.state.doc.lineAt(node.from);
           const closeLine = view.state.doc.lineAt(node.to);
-          // hide opening fence if cursor not on it
-          if (cursorLineNum !== openLine.number) {
-            items.push({ from: openLine.from, to: Math.min(openLine.to + 1, view.state.doc.length), deco: Decoration.replace({}) });
+          // Style each fence's `````` chars subtly when cursor isn't on them.
+          const openTickEnd = openLine.from + (openLine.text.match(/^\s*`+/)?.[0]?.length ?? 0);
+          if (cursorLineNum !== openLine.number && openTickEnd > openLine.from) {
+            items.push({ from: openLine.from, to: openTickEnd, deco: Decoration.mark({ class: "cm-fence-mark" }) });
           }
-          // hide closing fence if cursor not on it AND it's actually a fence line
           if (cursorLineNum !== closeLine.number && /^\s*```/.test(closeLine.text)) {
-            items.push({ from: closeLine.from, to: closeLine.to, deco: Decoration.replace({}) });
+            const closeTickEnd = closeLine.from + (closeLine.text.match(/^\s*`+/)?.[0]?.length ?? 0);
+            items.push({ from: closeLine.from, to: closeTickEnd, deco: Decoration.mark({ class: "cm-fence-mark" }) });
           }
           return;
         }
