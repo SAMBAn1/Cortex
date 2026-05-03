@@ -1,65 +1,139 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
-import { addDays, startOfDay, dayKey, diffDays } from "../../lib/parse/dates";
+import { addDays, startOfDay, dayKey } from "../../lib/parse/dates";
 import { useNotes } from "../../store/notes";
 import { CalendarDays, Check, AlertCircle, Circle, ZoomIn, ZoomOut, LocateFixed } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/cn";
 
-interface DayBucket {
-  date: Date;
-  offset: number;
-  due: { noteId: string; title: string; raw: string; done: boolean; overdue: boolean }[];
-  completed: number;
-  pending: number;
-  overdue: number;
+/**
+ * Multi-level timeline. Zoom levels switch the time scale (not just cell size):
+ *   0: days (1 cell = 1 day)
+ *   1: weeks (1 cell = 7 days)
+ *   2: months (1 cell = 1 month)
+ *   3: quarters (1 cell = 3 months)
+ *   4: years (1 cell = 1 year)
+ *
+ * At every level we still show counts on each cell — aggregated from the underlying days.
+ */
+
+type Scale = "day" | "week" | "month" | "quarter" | "year";
+
+interface ScaleSpec {
+  scale: Scale;
+  cellW: number;
+  pastCells: number;     // how many cells before "today" / "this period"
+  futureCells: number;
+  formatLabel: (d: Date, isCurrent: boolean) => string;
+  /** Get the canonical start of the period containing d. */
+  periodStart: (d: Date) => Date;
+  /** Step back/forward N periods. */
+  step: (d: Date, n: number) => Date;
 }
 
-const ZOOM_LEVELS = [32, 44, 56, 72, 96];
-const RANGE = 61;     // ~2 months centered on today
-const PAST = 30;
+const SCALES: ScaleSpec[] = [
+  {
+    scale: "day", cellW: 56, pastCells: 30, futureCells: 30,
+    formatLabel: (d, cur) => cur ? "TODAY" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    periodStart: (d) => startOfDay(d),
+    step: (d, n) => addDays(d, n),
+  },
+  {
+    scale: "week", cellW: 64, pastCells: 12, futureCells: 12,
+    formatLabel: (d, cur) => cur ? "THIS WK" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    periodStart: (d) => {
+      const x = startOfDay(d); x.setDate(x.getDate() - x.getDay()); return x; // Sunday-anchored week
+    },
+    step: (d, n) => addDays(d, n * 7),
+  },
+  {
+    scale: "month", cellW: 72, pastCells: 12, futureCells: 12,
+    formatLabel: (d, cur) => cur ? "THIS MO" : d.toLocaleDateString(undefined, { month: "short", year: "2-digit" }),
+    periodStart: (d) => new Date(d.getFullYear(), d.getMonth(), 1),
+    step: (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1),
+  },
+  {
+    scale: "quarter", cellW: 80, pastCells: 8, futureCells: 8,
+    formatLabel: (d, cur) => {
+      const q = Math.floor(d.getMonth() / 3) + 1;
+      const yr = String(d.getFullYear()).slice(-2);
+      return cur ? `THIS Q` : `Q${q} '${yr}`;
+    },
+    periodStart: (d) => new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1),
+    step: (d, n) => new Date(d.getFullYear(), d.getMonth() + n * 3, 1),
+  },
+  {
+    scale: "year", cellW: 80, pastCells: 5, futureCells: 5,
+    formatLabel: (d, cur) => cur ? "THIS YR" : String(d.getFullYear()),
+    periodStart: (d) => new Date(d.getFullYear(), 0, 1),
+    step: (d, n) => new Date(d.getFullYear() + n, 0, 1),
+  },
+];
+
+interface DueItem { noteId: string; title: string; raw: string; done: boolean; overdue: boolean; date: Date; }
+interface Bucket {
+  start: Date; end: Date;
+  isCurrent: boolean;
+  due: DueItem[];
+  completed: number; pending: number; overdue: number;
+}
 
 export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const notes = useNotes(s => s.notes);
   const today = startOfDay();
-  const start = addDays(today, -PAST);
-  const [zoom, setZoom] = useState(2);
-  const cellW = ZOOM_LEVELS[zoom];
+  const [zoom, setZoom] = useState(0); // 0 = day
+  const spec = SCALES[zoom];
 
-  const buckets: DayBucket[] = useMemo(() => {
-    const map = new Map<string, DayBucket>();
-    for (let i = 0; i < RANGE; i++) {
-      const d = addDays(start, i);
-      map.set(dayKey(d), { date: d, offset: diffDays(d, today), due: [], completed: 0, pending: 0, overdue: 0 });
-    }
+  // Pre-compute every dated item once; we'll group into buckets per scale.
+  const allItems = useMemo<DueItem[]>(() => {
+    const out: DueItem[] = [];
     for (const n of Object.values(notes)) {
       for (const dt of n.dates) {
-        const k = dayKey(dt.iso);
-        const target = map.get(k);
-        const overdue = !dt.done && new Date(dt.iso) < today;
-        if (!target) continue;
-        target.due.push({ noteId: n.id, title: n.title, raw: dt.raw, done: !!dt.done, overdue });
-        if (dt.done) target.completed++;
-        else if (overdue) target.overdue++;
-        else target.pending++;
+        const date = new Date(dt.iso);
+        out.push({
+          noteId: n.id, title: n.title, raw: dt.raw,
+          done: !!dt.done, overdue: !dt.done && date < today, date,
+        });
       }
     }
-    return [...map.values()].sort((a, b) => a.offset - b.offset);
+    return out;
   }, [notes]);
+
+  const buckets: Bucket[] = useMemo(() => {
+    const currentStart = spec.periodStart(today);
+    const result: Bucket[] = [];
+    for (let i = -spec.pastCells; i <= spec.futureCells; i++) {
+      const start = spec.step(currentStart, i);
+      const end = spec.step(start, 1); // exclusive
+      result.push({
+        start, end,
+        isCurrent: i === 0,
+        due: [], completed: 0, pending: 0, overdue: 0,
+      });
+    }
+    // Bucket items by which period they fall in
+    for (const it of allItems) {
+      const bucket = result.find(b => it.date >= b.start && it.date < b.end);
+      if (!bucket) continue;
+      bucket.due.push(it);
+      if (it.done) bucket.completed++;
+      else if (it.overdue) bucket.overdue++;
+      else bucket.pending++;
+    }
+    return result;
+  }, [allItems, spec, today]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  const centerToday = useCallback(() => {
+  const centerCurrent = useCallback(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const todayEl = el.querySelector<HTMLElement>('[data-today="1"]');
-    if (todayEl) {
-      el.scrollTo({ left: todayEl.offsetLeft - el.clientWidth / 2 + todayEl.clientWidth / 2, behavior: "smooth" });
-    }
+    const cur = el.querySelector<HTMLElement>('[data-current="1"]');
+    if (cur) el.scrollTo({ left: cur.offsetLeft - el.clientWidth / 2 + cur.clientWidth / 2, behavior: "smooth" });
   }, []);
 
-  useEffect(() => { centerToday(); }, [zoom, centerToday]);
+  useEffect(() => { centerCurrent(); }, [zoom, centerCurrent]);
 
-  // Wheel: convert vertical scroll to horizontal
+  // Wheel: vertical scroll → horizontal
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -76,24 +150,25 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
   return (
     <div className="panel p-3">
       <div className="flex items-center justify-between mb-2 px-1">
-        <div className="text-xs uppercase tracking-wider text-fg-subtle">Timeline</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs uppercase tracking-wider text-fg-subtle">Timeline</div>
+          <div className="text-[10px] uppercase tracking-wider text-accent bg-accent-muted/40 px-1.5 py-0.5 rounded">
+            {spec.scale}
+          </div>
+        </div>
         <div className="flex items-center gap-0.5">
-          <button onClick={() => setZoom(z => Math.max(0, z - 1))} disabled={zoom === 0} className="icon-btn h-7 w-7" title="Zoom out"><ZoomOut size={13} /></button>
-          <button onClick={() => setZoom(z => Math.min(ZOOM_LEVELS.length - 1, z + 1))} disabled={zoom === ZOOM_LEVELS.length - 1} className="icon-btn h-7 w-7" title="Zoom in"><ZoomIn size={13} /></button>
-          <button onClick={centerToday} className="icon-btn h-7 w-7" title="Center on today"><LocateFixed size={13} /></button>
+          <button onClick={() => setZoom(z => Math.max(0, z - 1))} disabled={zoom === 0} className="icon-btn h-7 w-7" title="Zoom in (smaller scale)"><ZoomIn size={13} /></button>
+          <button onClick={() => setZoom(z => Math.min(SCALES.length - 1, z + 1))} disabled={zoom === SCALES.length - 1} className="icon-btn h-7 w-7" title="Zoom out (larger scale)"><ZoomOut size={13} /></button>
+          <button onClick={centerCurrent} className="icon-btn h-7 w-7" title="Center on today"><LocateFixed size={13} /></button>
           <button onClick={onOpenCalendar} className="icon-btn h-7 w-7" title="Open calendar"><CalendarDays size={13} /></button>
         </div>
       </div>
-      <div
-        ref={scrollerRef}
-        className="overflow-x-auto pb-1 select-none cursor-grab active:cursor-grabbing"
-        style={{ scrollbarWidth: "thin" }}
-      >
+      <div ref={scrollerRef} className="overflow-x-auto pb-1 select-none cursor-grab active:cursor-grabbing">
         <div className="relative h-24 min-w-max">
           <div className="absolute left-0 right-0 top-1/2 h-px bg-border" />
           <div className="flex items-center h-full">
-            {buckets.map(b => (
-              <DayDot key={b.offset} bucket={b} cellW={cellW} />
+            {buckets.map((b, i) => (
+              <BucketDot key={i} bucket={b} cellW={spec.cellW} formatLabel={spec.formatLabel} />
             ))}
           </div>
         </div>
@@ -102,13 +177,14 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
   );
 }
 
-function DayDot({ bucket, cellW }: { bucket: DayBucket; cellW: number }) {
+function BucketDot({ bucket, cellW, formatLabel }: {
+  bucket: Bucket; cellW: number; formatLabel: ScaleSpec["formatLabel"];
+}) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const isToday = bucket.offset === 0;
-  const isPast = bucket.offset < 0;
   const total = bucket.due.length;
-  const dotSize = total === 0 ? Math.max(4, Math.round(cellW * 0.13)) : Math.min(28, Math.round(cellW * 0.18) + total * 2);
+  const isPast = bucket.end <= startOfDay();
+  const dotSize = total === 0 ? 6 : Math.min(28, 8 + Math.sqrt(total) * 4);
   const color = bucket.overdue > 0
     ? "bg-danger"
     : bucket.completed === total && total > 0
@@ -117,41 +193,40 @@ function DayDot({ bucket, cellW }: { bucket: DayBucket; cellW: number }) {
         ? "bg-accent"
         : "bg-border";
 
-  const showLabel = cellW >= 44 || isToday || bucket.date.getDate() === 1;
-  const showCount = cellW >= 56;
-
   return (
     <div
       className="relative flex flex-col items-center justify-center h-full"
       style={{ width: cellW, minWidth: cellW }}
-      data-today={isToday ? "1" : undefined}
+      data-current={bucket.isCurrent ? "1" : undefined}
       onMouseEnter={() => total > 0 && setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
-      <div className={cn("text-[10px] mb-1 h-3", isToday ? "text-accent font-medium" : "text-fg-subtle", !showLabel && "opacity-0")}>
-        {isToday ? "TODAY" : bucket.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+      <div className={cn("text-[10px] mb-1 h-3", bucket.isCurrent ? "text-accent font-medium" : "text-fg-subtle")}>
+        {formatLabel(bucket.start, bucket.isCurrent)}
       </div>
       <button
-        className={cn("rounded-full transition-transform", color, isPast && total === 0 && "opacity-30", "hover:scale-125")}
+        className={cn("rounded-full transition-transform relative flex items-center justify-center", color, isPast && total === 0 && "opacity-30", "hover:scale-125")}
         style={{ width: dotSize, height: dotSize }}
         onClick={() => total > 0 && navigate(`/notes/${bucket.due[0].noteId}`)}
-      />
-      <div className={cn("text-[10px] mt-1 h-3", total > 0 && showCount ? "text-fg-muted" : "text-transparent")}>
+      >
+        {/* Always show the count INSIDE/under the dot when ≥1 item — no hover required */}
+      </button>
+      <div className={cn("text-[10px] mt-1 h-3 font-medium", total > 0 ? "text-fg-muted" : "text-transparent")}>
         {total > 0 ? `${total}` : "."}
       </div>
-      {open && (
-        <div className="absolute z-30 top-full mt-1 w-60 panel p-2 shadow-soft animate-fade-in">
+      {open && total > 0 && (
+        <div className="absolute z-30 top-full mt-1 w-64 panel p-2 shadow-soft animate-fade-in">
           <div className="text-xs text-fg-subtle mb-1">
-            {bucket.date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-            {isToday && " · today"}
+            {bucket.start.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+            {bucket.isCurrent && " · now"}
           </div>
           <div className="flex gap-2 text-xs mb-2">
             {bucket.overdue > 0 && <span className="pill bg-danger/10 text-danger"><AlertCircle size={10} /> {bucket.overdue}</span>}
             {bucket.pending > 0 && <span className="pill bg-accent-muted text-accent"><Circle size={10} /> {bucket.pending}</span>}
             {bucket.completed > 0 && <span className="pill bg-success/10 text-success"><Check size={10} /> {bucket.completed}</span>}
           </div>
-          <div className="space-y-1 max-h-40 overflow-auto">
-            {bucket.due.slice(0, 6).map((d, i) => (
+          <div className="space-y-1 max-h-44 overflow-auto">
+            {bucket.due.slice(0, 8).map((d, i) => (
               <button
                 key={i}
                 onClick={() => navigate(`/notes/${d.noteId}`)}
@@ -162,9 +237,15 @@ function DayDot({ bucket, cellW }: { bucket: DayBucket; cellW: number }) {
                 </span>
               </button>
             ))}
+            {bucket.due.length > 8 && (
+              <div className="text-[10px] text-fg-subtle p-1">+{bucket.due.length - 8} more</div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 }
+
+// dayKey re-export not needed but keep imports clean
+void dayKey;

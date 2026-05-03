@@ -35,9 +35,14 @@
     font-feature-settings: "cv02","cv03","cv04","cv11";
   }
   ::selection { background: rgb(var(--accent) / 0.25); }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 4px; }
+  /* Sleek themed scrollbars — thin, semi-transparent, become more visible on hover */
+  * { scrollbar-width: thin; scrollbar-color: rgb(var(--border) / 0.6) transparent; }
+  *:hover { scrollbar-color: rgb(var(--fg-subtle) / 0.8) transparent; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--border) / 0.6); border-radius: 999px; transition: background 200ms; }
   ::-webkit-scrollbar-thumb:hover { background: rgb(var(--fg-subtle)); }
+  ::-webkit-scrollbar-corner { background: transparent; }
 }
 
 @layer components {
