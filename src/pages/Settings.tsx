@@ -86,10 +86,19 @@ export default function SettingsPage() {
           <Row label="Provider">
             <select
               value={settings.llmProvider}
-              onChange={e => save({ llmProvider: e.target.value as any })}
+              onChange={e => {
+                const p = e.target.value as any;
+                save({
+                  llmProvider: p,
+                  // Reset model to the default for the new provider so the user doesn't have
+                  // to remember to change it.
+                  llmModel: p === "gemini" ? "gemini-2.0-flash" : p === "anthropic" ? "claude-sonnet-4-6" : "",
+                });
+              }}
               className="bg-bg-panel border border-border rounded-md px-2 py-1.5 text-sm"
             >
-              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="gemini">Google Gemini (free tier)</option>
+              <option value="anthropic">Anthropic (Claude — paid API)</option>
               <option value="none">None</option>
             </select>
           </Row>
@@ -97,7 +106,7 @@ export default function SettingsPage() {
             <input
               value={settings.llmModel}
               onChange={e => save({ llmModel: e.target.value })}
-              placeholder="claude-sonnet-4-6"
+              placeholder={settings.llmProvider === "gemini" ? "gemini-2.0-flash" : "claude-sonnet-4-6"}
               className="bg-bg-panel border border-border rounded-md px-2 py-1.5 text-sm flex-1 max-w-xs"
             />
           </Row>
@@ -107,7 +116,7 @@ export default function SettingsPage() {
                 value={settings.llmApiKey}
                 onChange={e => save({ llmApiKey: e.target.value })}
                 type={showKey ? "text" : "password"}
-                placeholder="sk-ant-…"
+                placeholder={settings.llmProvider === "gemini" ? "AIza…" : "sk-ant-…"}
                 className="bg-bg-panel border border-border rounded-md px-2 py-1.5 text-sm flex-1 font-mono"
               />
               <button onClick={() => setShowKey(s => !s)} className="icon-btn h-9 w-9">
@@ -115,8 +124,23 @@ export default function SettingsPage() {
               </button>
             </div>
           </Row>
+          {settings.llmProvider === "gemini" && (
+            <div className="text-[11px] text-fg-muted px-1 leading-relaxed bg-accent-muted/10 border border-accent/20 rounded p-2">
+              <span className="text-accent font-medium">Free.</span>{" "}
+              Get an API key at{" "}
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-accent underline">aistudio.google.com/apikey</a>
+              {" "}— sign in with Google, click <span className="text-fg">Create API key</span>, copy and paste here. Free tier: 1,500 requests/day. No credit card needed.
+            </div>
+          )}
+          {settings.llmProvider === "anthropic" && (
+            <div className="text-[11px] text-fg-muted px-1 leading-relaxed">
+              Get an API key at{" "}
+              <a href="https://console.anthropic.com/" target="_blank" rel="noreferrer" className="text-accent underline">console.anthropic.com</a>.
+              Note: a Claude.ai Pro subscription doesn't grant API access — billed separately per token.
+            </div>
+          )}
           <p className="text-[11px] text-fg-subtle px-1">
-            Stored locally in this browser. Calls go directly from your browser to the provider.
+            Stored locally in your browser. Calls go directly from your browser to the provider.
           </p>
         </Section>
 

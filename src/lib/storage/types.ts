@@ -45,7 +45,7 @@ export interface NoteVersion {
 
 export interface AppSettings {
   theme: "light" | "dark";
-  llmProvider: "anthropic" | "openai" | "none";
+  llmProvider: "gemini" | "anthropic" | "none";
   llmApiKey: string;
   llmModel: string;
   aiPanelSide: "left" | "right";
@@ -74,9 +74,9 @@ export interface StorageAdapter {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
-  llmProvider: "anthropic",
+  llmProvider: "gemini",
   llmApiKey: "",
-  llmModel: "claude-sonnet-4-6",
+  llmModel: "gemini-2.0-flash",
   aiPanelSide: "right",
   vaultMode: "indexeddb",
 };

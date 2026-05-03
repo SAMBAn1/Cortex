@@ -15,11 +15,8 @@ export interface DailyBrief {
 
 export interface LLMService {
   available(): boolean;
-  /** Find connections between scattered notes — PM "second brain" mode. */
   ideas(notes: Note[]): Promise<LLMSuggestion[]>;
-  /** Q&A across the vault. */
   ask(prompt: string, notes: Note[]): Promise<string>;
-  /** Narrative summary of the day's commitments. The deterministic data is built locally. */
   briefSummary(brief: DailyBrief, notes: Note[]): Promise<string>;
 }
 
@@ -47,34 +44,13 @@ class NullLLM implements LLMService {
   async briefSummary() { return ""; }
 }
 
-class AnthropicLLM implements LLMService {
-  apiKey: string;
-  model: string;
-  constructor(apiKey: string, model: string) { this.apiKey = apiKey; this.model = model; }
-  available() { return !!this.apiKey; }
-
-  private async call(messages: { role: "user" | "assistant"; content: string }[], system?: string, maxTokens = 1024): Promise<string> {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({ model: this.model, max_tokens: maxTokens, system, messages }),
-    });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
-    }
-    const data = await res.json();
-    return data.content?.[0]?.text ?? "";
-  }
+/** Shared prompt logic across providers. Subclasses only implement the network `call`. */
+abstract class BaseLLM implements LLMService {
+  abstract available(): boolean;
+  protected abstract call(userMessage: string, system: string, maxTokens: number): Promise<string>;
 
   async ideas(notes: Note[]): Promise<LLMSuggestion[]> {
     if (!notes.length) return [];
-    // Sample broadly: take a mix of recent + older notes, not just the latest 30.
     const sorted = [...notes].sort((a, b) => b.updatedAt - a.updatedAt);
     const sample = sorted.length <= 40 ? sorted : [
       ...sorted.slice(0, 20),
@@ -93,11 +69,7 @@ Rules:
 - 3 ideas max. Quality over quantity.
 - Return strict JSON only, no prose: [{"title":"...","body":"...","noteIds":["Note A","Note B"]}]`;
 
-    const out = await this.call(
-      [{ role: "user", content: `NOTES:\n\n${ctx}\n\nReturn JSON.` }],
-      system,
-      1500,
-    );
+    const out = await this.call(`NOTES:\n\n${ctx}\n\nReturn JSON.`, system, 1500);
     try {
       const json = JSON.parse(out.match(/\[[\s\S]*\]/)?.[0] ?? "[]");
       return Array.isArray(json) ? json.slice(0, 5) : [];
@@ -108,11 +80,8 @@ Rules:
 
   async ask(prompt: string, notes: Note[]): Promise<string> {
     const ctx = notes.slice(0, 25).map(n => `## ${n.title}\n${n.body.slice(0, 700)}`).join("\n\n");
-    return this.call(
-      [{ role: "user", content: prompt }],
-      `You are the user's second-brain assistant. Answer concisely. Cite notes by title when you reference them.\n\nVAULT NOTES:\n${ctx}`,
-      800,
-    );
+    const system = `You are the user's second-brain assistant. Answer concisely. Cite notes by title when you reference them.\n\nVAULT NOTES:\n${ctx}`;
+    return this.call(prompt, system, 800);
   }
 
   async briefSummary(brief: DailyBrief, notes: Note[]): Promise<string> {
@@ -121,18 +90,74 @@ Rules:
     }
     const briefStr = JSON.stringify(brief, null, 2);
     const ctx = notes.slice(0, 15).map(n => `## ${n.title}\n${n.body.slice(0, 400)}`).join("\n\n");
-    return this.call(
-      [{
-        role: "user",
-        content: `Today's structured commitments:\n${briefStr}\n\nRecent notes for context:\n${ctx}\n\nWrite a 3-4 sentence morning brief, in first person ("you"). Lead with anything overdue. Highlight any decisions or risks the PM should think about today. No bullet lists — flowing prose.`,
-      }],
-      `You are an assistant PM writing a daily standup brief for the product manager.`,
-      400,
-    );
+    const user = `Today's structured commitments:\n${briefStr}\n\nRecent notes for context:\n${ctx}\n\nWrite a 3-4 sentence morning brief, in first person ("you"). Lead with anything overdue. Highlight any decisions or risks the PM should think about today. No bullet lists — flowing prose.`;
+    return this.call(user, `You are an assistant PM writing a daily standup brief for the product manager.`, 400);
   }
 }
 
+class AnthropicLLM extends BaseLLM {
+  apiKey: string;
+  model: string;
+  constructor(apiKey: string, model: string) { super(); this.apiKey = apiKey; this.model = model; }
+  available() { return !!this.apiKey; }
+
+  protected async call(userMessage: string, system: string, maxTokens: number): Promise<string> {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: this.model,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content: userMessage }],
+      }),
+    });
+    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const data = await res.json();
+    return data.content?.[0]?.text ?? "";
+  }
+}
+
+class GeminiLLM extends BaseLLM {
+  apiKey: string;
+  model: string;
+  constructor(apiKey: string, model: string) { super(); this.apiKey = apiKey; this.model = model; }
+  available() { return !!this.apiKey; }
+
+  protected async call(userMessage: string, system: string, maxTokens: number): Promise<string> {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        systemInstruction: { parts: [{ text: system }] },
+        generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+      }),
+    });
+    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const data = await res.json();
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    return parts.map((p: any) => p.text ?? "").join("");
+  }
+}
+
+/** Default model for each provider. */
+export function defaultModel(provider: string): string {
+  if (provider === "gemini") return "gemini-2.0-flash";
+  if (provider === "anthropic") return "claude-sonnet-4-6";
+  return "";
+}
+
 export function makeLLM(provider: string, apiKey: string, model: string): LLMService {
-  if (provider === "anthropic" && apiKey) return new AnthropicLLM(apiKey, model);
+  if (!apiKey) return new NullLLM();
+  const m = model || defaultModel(provider);
+  if (provider === "anthropic") return new AnthropicLLM(apiKey, m);
+  if (provider === "gemini") return new GeminiLLM(apiKey, m);
   return new NullLLM();
 }

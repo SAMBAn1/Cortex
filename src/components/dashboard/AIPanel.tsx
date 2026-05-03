@@ -100,12 +100,12 @@ export default function AIPanel() {
 
       {!llm.available() && (
         <div className="text-xs text-fg-muted p-3 bg-bg-panel rounded-lg leading-relaxed">
-          Add your <span className="text-accent font-medium">Anthropic API key</span> in{" "}
+          Add an API key in{" "}
           <button onClick={() => navigate("/settings")} className="text-accent underline">Settings</button>{" "}
           to unlock the daily brief, idea connections, and Q&A.
           <div className="mt-2 text-[11px] text-fg-subtle">
-            Note: a Claude.ai Pro subscription doesn't include API access — get a key at{" "}
-            <a href="https://console.anthropic.com/" target="_blank" rel="noreferrer" className="underline">console.anthropic.com</a>.
+            Free option: get a Google Gemini API key (no credit card) at{" "}
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="underline text-accent">aistudio.google.com/apikey</a>.
           </div>
         </div>
       )}
