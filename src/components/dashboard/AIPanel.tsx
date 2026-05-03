@@ -1,43 +1,55 @@
-import { useEffect, useState } from "react";
-import { Brain, RefreshCw, Sparkles, Send, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Brain, RefreshCw, Sparkles, Send, Loader2, AlertCircle, CalendarDays, Lightbulb } from "lucide-react";
 import { useNotes } from "../../store/notes";
 import { useSettings } from "../../store/settings";
-import { fetchUrlText } from "../../lib/llm/service";
-import { extractUrls } from "../../lib/parse/markdown";
-import type { LLMSuggestion } from "../../lib/llm/service";
+import { useNavigate } from "react-router-dom";
+import { computeDailyBrief } from "../../lib/brief";
+import type { DailyBrief, LLMSuggestion } from "../../lib/llm/service";
 
 export default function AIPanel() {
   const notes = useNotes(s => s.notes);
   const { llm, settings } = useSettings();
-  const [loading, setLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<LLMSuggestion[]>([]);
+  const navigate = useNavigate();
+  const [briefSummary, setBriefSummary] = useState<string>("");
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [ideas, setIdeas] = useState<LLMSuggestion[]>([]);
+  const [ideasLoading, setIdeasLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState<string>("");
   const [askLoading, setAskLoading] = useState(false);
 
-  async function refresh() {
+  const brief: DailyBrief = useMemo(
+    () => computeDailyBrief(Object.values(notes)),
+    [notes]
+  );
+
+  async function loadBriefSummary() {
     if (!llm.available()) return;
-    setLoading(true);
-    setError(null);
+    setBriefLoading(true);
     try {
-      const recent = Object.values(notes)
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .slice(0, 30);
-      // Best-effort enrich a few notes with URL contents
-      const enriched = await Promise.all(recent.slice(0, 5).map(async n => {
-        const urls = extractUrls(n.body).slice(0, 2);
-        if (!urls.length) return n;
-        const fetched = await Promise.all(urls.map(u => fetchUrlText(u, 800).then(t => t ? `\n[${u}]\n${t}` : "")));
-        return { ...n, body: n.body + "\n\n[linked]\n" + fetched.join("\n") };
-      }));
-      const rest = recent.slice(5);
-      const s = await llm.suggest([...enriched, ...rest]);
-      setSuggestions(s);
+      const list = Object.values(notes).sort((a, b) => b.updatedAt - a.updatedAt);
+      const s = await llm.briefSummary(brief, list);
+      setBriefSummary(s);
     } catch (e: any) {
       setError(e.message ?? String(e));
     } finally {
-      setLoading(false);
+      setBriefLoading(false);
+    }
+  }
+
+  async function loadIdeas() {
+    if (!llm.available()) return;
+    setIdeasLoading(true);
+    setError(null);
+    try {
+      const list = Object.values(notes).sort((a, b) => b.updatedAt - a.updatedAt);
+      const s = await llm.ideas(list);
+      setIdeas(s);
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      setIdeasLoading(false);
     }
   }
 
@@ -46,8 +58,8 @@ export default function AIPanel() {
     setAskLoading(true);
     setAnswer("");
     try {
-      const recent = Object.values(notes).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20);
-      const a = await llm.ask(q, recent);
+      const list = Object.values(notes).sort((a, b) => b.updatedAt - a.updatedAt);
+      const a = await llm.ask(q, list);
       setAnswer(a);
     } catch (e: any) {
       setAnswer(`Error: ${e.message}`);
@@ -56,48 +68,128 @@ export default function AIPanel() {
     }
   }
 
+  // Auto-load brief summary + ideas once when key is configured.
   useEffect(() => {
-    if (llm.available() && Object.keys(notes).length > 0 && suggestions.length === 0 && !loading) {
-      refresh();
+    if (llm.available() && Object.keys(notes).length > 0) {
+      if (!briefSummary && !briefLoading) loadBriefSummary();
+      if (ideas.length === 0 && !ideasLoading) loadIdeas();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.llmApiKey]);
+
+  function findNoteId(title: string): string | undefined {
+    const t = title.toLowerCase();
+    return Object.values(notes).find(n => n.title.toLowerCase() === t)?.id;
+  }
 
   return (
     <div className="panel p-3 h-full flex flex-col min-h-0">
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-fg-subtle">
-          <Brain size={12} className="text-accent" /> Second brain
+          <Brain size={12} className="text-accent" /> Assistant PM
         </div>
-        <button onClick={refresh} disabled={loading || !llm.available()} className="icon-btn h-7 w-7" title="Refresh suggestions">
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+        <button
+          onClick={() => { loadBriefSummary(); loadIdeas(); }}
+          disabled={ideasLoading || briefLoading || !llm.available()}
+          className="icon-btn h-7 w-7"
+          title="Refresh"
+        >
+          {(ideasLoading || briefLoading) ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
         </button>
       </div>
 
       {!llm.available() && (
-        <div className="text-xs text-fg-muted p-3 bg-bg-panel rounded-lg">
-          Add your Anthropic API key in <span className="text-accent">Settings</span> to unlock AI suggestions, follow-ups, and Q&A across your notes.
+        <div className="text-xs text-fg-muted p-3 bg-bg-panel rounded-lg leading-relaxed">
+          Add your <span className="text-accent font-medium">Anthropic API key</span> in{" "}
+          <button onClick={() => navigate("/settings")} className="text-accent underline">Settings</button>{" "}
+          to unlock the daily brief, idea connections, and Q&A.
+          <div className="mt-2 text-[11px] text-fg-subtle">
+            Note: a Claude.ai Pro subscription doesn't include API access — get a key at{" "}
+            <a href="https://console.anthropic.com/" target="_blank" rel="noreferrer" className="underline">console.anthropic.com</a>.
+          </div>
         </div>
       )}
 
-      {error && <div className="text-xs text-danger p-2">{error}</div>}
+      {error && (
+        <div className="text-[11px] text-danger p-2 bg-danger/5 border border-danger/20 rounded mb-2">
+          <AlertCircle size={11} className="inline mr-1" /> {error}
+        </div>
+      )}
 
-      <div className="flex-1 overflow-auto space-y-2 mt-1">
-        {suggestions.map((s, i) => (
-          <div key={i} className="p-3 rounded-lg bg-bg-panel/60 border border-border hover:border-accent/40 transition-colors">
-            <div className="text-sm font-medium flex items-center gap-1.5">
-              <Sparkles size={12} className="text-accent" /> {s.title}
-            </div>
-            <div className="text-xs text-fg-muted mt-1 leading-relaxed">{s.body}</div>
-            {s.noteIds && s.noteIds.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {s.noteIds.map((nid, j) => (
-                  <span key={j} className="pill bg-accent-muted text-accent text-[10px]">{nid}</span>
+      <div className="flex-1 overflow-auto space-y-3 mt-1">
+        {/* Today's commitments — deterministic, always shown */}
+        {(brief.overdue.length > 0 || brief.today.length > 0 || brief.upcoming.length > 0) && (
+          <Section icon={<CalendarDays size={11} className="text-accent" />} title="Today's brief">
+            {brief.overdue.length > 0 && (
+              <Row label={`${brief.overdue.length} overdue`} kind="danger">
+                {brief.overdue.slice(0, 3).map((it, i) => (
+                  <BriefItem key={i} label={it.title} sub={it.raw} onClick={() => it.noteId && navigate(`/notes/${it.noteId}`)} />
                 ))}
+              </Row>
+            )}
+            {brief.today.length > 0 && (
+              <Row label="Today" kind="accent">
+                {brief.today.slice(0, 5).map((it, i) => (
+                  <BriefItem key={i} label={it.title} sub={it.raw} onClick={() => it.noteId && navigate(`/notes/${it.noteId}`)} />
+                ))}
+              </Row>
+            )}
+            {brief.upcoming.length > 0 && (
+              <Row label="Upcoming" kind="muted">
+                {brief.upcoming.slice(0, 4).map((it, i) => (
+                  <BriefItem
+                    key={i}
+                    label={it.title}
+                    sub={`${it.raw} · in ${it.days}d`}
+                    onClick={() => it.noteId && navigate(`/notes/${it.noteId}`)}
+                  />
+                ))}
+              </Row>
+            )}
+            {briefSummary && (
+              <div className="text-xs text-fg-muted leading-relaxed mt-2 p-2 rounded bg-accent-muted/20 border border-accent/20">
+                {briefSummary}
               </div>
             )}
-          </div>
-        ))}
+            {briefLoading && (
+              <div className="text-[11px] text-fg-subtle flex items-center gap-1.5 mt-1">
+                <Loader2 size={11} className="animate-spin" /> Drafting your morning brief…
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* AI-generated ideas / connections */}
+        {ideas.length > 0 && (
+          <Section icon={<Lightbulb size={11} className="text-warn" />} title="Idea connections">
+            {ideas.map((s, i) => (
+              <div key={i} className="p-2.5 rounded-lg bg-bg-panel/60 border border-border hover:border-accent/40 transition-colors">
+                <div className="text-sm font-medium flex items-center gap-1.5">
+                  <Sparkles size={11} className="text-accent" /> {s.title}
+                </div>
+                <div className="text-xs text-fg-muted mt-1 leading-relaxed">{s.body}</div>
+                {s.noteIds && s.noteIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {s.noteIds.map((title, j) => {
+                      const id = findNoteId(title);
+                      return (
+                        <button
+                          key={j}
+                          onClick={() => id && navigate(`/notes/${id}`)}
+                          className="pill bg-accent-muted text-accent text-[10px] hover:opacity-80"
+                          disabled={!id}
+                        >
+                          {title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </Section>
+        )}
+
         {answer && (
           <div className="p-3 rounded-lg bg-accent-muted/30 border border-accent/30">
             <div className="text-[11px] uppercase tracking-wider text-accent mb-1">Answer</div>
@@ -122,5 +214,42 @@ export default function AIPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-fg-subtle px-1">
+        {icon} {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Row({ label, kind, children }: { label: string; kind: "danger" | "accent" | "muted"; children: React.ReactNode }) {
+  const bg =
+    kind === "danger" ? "bg-danger/5 border-danger/20" :
+    kind === "accent" ? "bg-accent-muted/20 border-accent/20" :
+    "bg-bg-panel border-border";
+  const labelColor =
+    kind === "danger" ? "text-danger" :
+    kind === "accent" ? "text-accent" :
+    "text-fg-muted";
+  return (
+    <div className={`rounded-md border ${bg} p-2`}>
+      <div className={`text-[10px] uppercase tracking-wider ${labelColor} mb-1`}>{label}</div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+function BriefItem({ label, sub, onClick }: { label: string; sub: string; onClick?: () => void }) {
+  return (
+    <button onClick={onClick} className="w-full text-left text-xs hover:bg-bg-panel rounded p-1 -m-1">
+      <div className="truncate text-fg">{label}</div>
+      <div className="text-[10px] text-fg-subtle">{sub}</div>
+    </button>
   );
 }

@@ -6,13 +6,14 @@ import { history, defaultKeymap, historyKeymap, indentWithTab } from "@codemirro
 import { closeBrackets, closeBracketsKeymap, completionStatus, currentCompletions, startCompletion, acceptCompletion } from "@codemirror/autocomplete";
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { useNotes } from "../../store/notes";
-import { Trash2, History, Tag, Calendar, Link2, Folder, CheckCircle2, Circle, Bold, Italic, List, ListChecks, Quote, Code, Heading1, Heading2 } from "lucide-react";
+import { Trash2, History, Tag, Calendar, Link2, Folder, CheckCircle2, Circle, Bold, Italic, List, ListChecks, Quote, Code, Heading1, Heading2, FileCode } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/cn";
 import { makeCompletions } from "./completions";
 import { formatKeymap } from "./format-keymap";
 import { livePreview } from "./live-preview";
+import { continueMarkupKeymap } from "./continue-markup";
 
 // Build extensions ONCE per component lifetime. Component is keyed by noteId in parent
 // so it remounts on note change — extensions never need to "reconfigure" mid-life.
@@ -32,6 +33,7 @@ function buildExtensions(noteId: string) {
     ]),
     markdown({ base: markdownLanguage, codeLanguages: [] }),
     EditorView.lineWrapping,
+    continueMarkupKeymap,
     formatKeymap,
     livePreview,
     makeCompletions({
@@ -192,6 +194,7 @@ export default function Editor({ noteId }: { noteId: string }) {
           <ToolBtn onClick={() => wrapSel("**")} title="Bold (Ctrl+B)"><Bold size={14} /></ToolBtn>
           <ToolBtn onClick={() => wrapSel("*")} title="Italic (Ctrl+I)"><Italic size={14} /></ToolBtn>
           <ToolBtn onClick={() => wrapSel("`")} title="Inline code (Ctrl+`)"><Code size={14} /></ToolBtn>
+          <ToolBtn onClick={() => insertCodeBlock(viewRef.current)} title="Code block (```)"><FileCode size={14} /></ToolBtn>
           <Sep />
           <ToolBtn onClick={() => lineWrap("- ")} title="Bullet list"><List size={14} /></ToolBtn>
           <ToolBtn onClick={() => lineWrap("- [ ] ")} title="Task"><ListChecks size={14} /></ToolBtn>
@@ -269,4 +272,21 @@ function ToolBtn({ children, onClick, title }: { children: React.ReactNode; onCl
 
 function Sep() {
   return <div className="w-px h-4 bg-border mx-1" />;
+}
+
+function insertCodeBlock(view: EditorView | null) {
+  if (!view) return;
+  const { from, to } = view.state.selection.main;
+  const sel = view.state.doc.sliceString(from, to);
+  const line = view.state.doc.lineAt(from);
+  // If we're not at the start of a line, insert a leading newline.
+  const prefix = from === line.from ? "" : "\n";
+  const insert = `${prefix}\`\`\`\n${sel}\n\`\`\`\n`;
+  // Cursor lands inside the fence (after opening ```\n)
+  const cursorAt = from + prefix.length + 4 + sel.length;
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: { anchor: sel ? cursorAt : from + prefix.length + 4 },
+  });
+  view.focus();
 }

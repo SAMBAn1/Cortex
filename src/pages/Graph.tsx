@@ -12,6 +12,7 @@ interface GNode {
   weight: number;
   kind: Kind;
   x?: number; y?: number; vx?: number; vy?: number;
+  fx?: number; fy?: number;
 }
 interface GLink { source: string; target: string; kind: "link" | "date" | "tag"; }
 
@@ -81,6 +82,31 @@ export default function GraphPage() {
       weight: 1 + (incoming.get(n.id) ?? 0) + n.links.length,
       kind: "note",
     }));
+
+    // When ONLY dates are shown (no tags), pin date nodes chronologically along the left edge.
+    // When ONLY tags are shown (no dates), pin tag nodes alphabetically along the right edge.
+    // This makes the "spine" easy to read and the connecting webs visually obvious.
+    const onlyDates = showDates && !showTags;
+    const onlyTags = !showDates && showTags;
+
+    if (onlyDates) {
+      const sorted = [...dateNodes.values()].sort((a, b) => a.id.localeCompare(b.id)); // date:YYYY-MM-DD sorts chronologically
+      const N = sorted.length || 1;
+      const span = Math.max(400, N * 48);
+      sorted.forEach((node, i) => {
+        node.fx = -300;
+        node.fy = -span / 2 + (i / Math.max(1, N - 1)) * span;
+      });
+    }
+    if (onlyTags) {
+      const sorted = [...tagNodes.values()].sort((a, b) => a.name.localeCompare(b.name));
+      const N = sorted.length || 1;
+      const span = Math.max(400, N * 48);
+      sorted.forEach((node, i) => {
+        node.fx = 300;
+        node.fy = -span / 2 + (i / Math.max(1, N - 1)) * span;
+      });
+    }
 
     return { nodes: [...noteNodes, ...dateNodes.values(), ...tagNodes.values()], links };
   }, [notes, showDates, showTags]);

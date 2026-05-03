@@ -4,12 +4,10 @@ import { openFreshNote, typeIn, press, getDocText, acceptCompletion } from "./he
 test.describe("Code blocks", () => {
   test.beforeEach(async ({ page }) => { await openFreshNote(page); });
 
-  test("/code inserts fenced block with cursor between fences", async ({ page }) => {
-    await typeIn(page, "/code");
-    await acceptCompletion(page);
+  test("code block toolbar button inserts fenced block with cursor inside", async ({ page }) => {
+    await page.click('[title="Code block (```)"]');
     await typeIn(page, "hello");
     const doc = await getDocText(page);
-    // Should be a proper fenced block: ```\nhello\n```\n
     expect(doc).toBe("```\nhello\n```\n");
   });
 

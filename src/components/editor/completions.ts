@@ -110,7 +110,6 @@ export function makeCompletions(opts: {
       { label: "list", detail: "Bullet list", apply: applyAt("- ", 2) },
       { label: "numbered", detail: "Numbered list", apply: applyAt("1. ", 3) },
       { label: "quote", detail: "Blockquote", apply: applyAt("> ", 2) },
-      { label: "code", detail: "Code block", apply: applyAt("```\n\n```\n", 4) },
       { label: "table", detail: "Table", apply: applyAt("| Col | Col |\n| --- | --- |\n|     |     |\n", 2) },
       { label: "hr", detail: "Horizontal rule", apply: applyAt("---\n", 4) },
       { label: "link", detail: "Link", apply: applyAt("[text](url)", 1) },
