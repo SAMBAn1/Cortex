@@ -149,7 +149,7 @@ class GeminiLLM extends BaseLLM {
 
 /** Default model for each provider. */
 export function defaultModel(provider: string): string {
-  if (provider === "gemini") return "gemini-2.0-flash";
+  if (provider === "gemini") return "gemini-2.5-flash";
   if (provider === "anthropic") return "claude-sonnet-4-6";
   return "";
 }

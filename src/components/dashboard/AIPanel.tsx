@@ -8,7 +8,7 @@ import type { DailyBrief, LLMSuggestion } from "../../lib/llm/service";
 
 export default function AIPanel() {
   const notes = useNotes(s => s.notes);
-  const { llm, settings } = useSettings();
+  const { llm } = useSettings();
   const navigate = useNavigate();
   const [briefSummary, setBriefSummary] = useState<string>("");
   const [briefLoading, setBriefLoading] = useState(false);
@@ -68,14 +68,11 @@ export default function AIPanel() {
     }
   }
 
-  // Auto-load brief summary + ideas once when key is configured.
-  useEffect(() => {
-    if (llm.available() && Object.keys(notes).length > 0) {
-      if (!briefSummary && !briefLoading) loadBriefSummary();
-      if (ideas.length === 0 && !ideasLoading) loadIdeas();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.llmApiKey]);
+  // Auto-load is OFF by default to conserve quota. The user clicks Refresh to populate.
+  // We only auto-load if the user has previously loaded in this session AND the data is empty —
+  // i.e. they navigated away and back. Otherwise they explicitly refresh.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { /* no auto-fire */ }, []);
 
   function findNoteId(title: string): string | undefined {
     const t = title.toLowerCase();
@@ -111,8 +108,23 @@ export default function AIPanel() {
       )}
 
       {error && (
-        <div className="text-[11px] text-danger p-2 bg-danger/5 border border-danger/20 rounded mb-2">
-          <AlertCircle size={11} className="inline mr-1" /> {error}
+        <div className="text-[11px] text-danger p-2 bg-danger/5 border border-danger/20 rounded mb-2 leading-relaxed">
+          <AlertCircle size={11} className="inline mr-1" />
+          {error.includes("429") || error.toLowerCase().includes("quota") ? (
+            <>
+              <span className="font-medium">Rate-limited / quota exceeded.</span>{" "}
+              Free Gemini tier allows 250 requests/day on <code className="text-fg">gemini-2.5-flash</code>.
+              Try again in a minute (per-minute cap) or switch model in{" "}
+              <button onClick={() => navigate("/settings")} className="underline text-accent">Settings</button>{" "}
+              to <code className="text-fg">gemini-2.5-flash-lite</code> (1,000 req/day).
+              <button onClick={() => setError(null)} className="ml-2 underline text-fg-muted">dismiss</button>
+            </>
+          ) : (
+            <>
+              {error}{" "}
+              <button onClick={() => setError(null)} className="ml-2 underline text-fg-muted">dismiss</button>
+            </>
+          )}
         </div>
       )}
 
@@ -156,10 +168,31 @@ export default function AIPanel() {
                 <Loader2 size={11} className="animate-spin" /> Drafting your morning brief…
               </div>
             )}
+            {!briefSummary && !briefLoading && llm.available() && (
+              <button
+                onClick={loadBriefSummary}
+                className="text-[11px] text-accent hover:underline mt-1 flex items-center gap-1"
+              >
+                <Sparkles size={11} /> Generate AI brief
+              </button>
+            )}
           </Section>
         )}
 
-        {/* AI-generated ideas / connections */}
+        {/* AI-generated ideas / connections — explicit button to avoid burning quota on auto-load */}
+        {ideas.length === 0 && !ideasLoading && llm.available() && (
+          <div className="text-[11px] text-fg-muted p-2 rounded bg-bg-panel/60 border border-border flex items-center justify-between">
+            <span>Connect scattered notes into ideas?</span>
+            <button onClick={loadIdeas} className="text-accent hover:underline flex items-center gap-1">
+              <Lightbulb size={11} /> Find ideas
+            </button>
+          </div>
+        )}
+        {ideasLoading && (
+          <div className="text-[11px] text-fg-subtle flex items-center gap-1.5 p-2">
+            <Loader2 size={11} className="animate-spin" /> Scanning your vault…
+          </div>
+        )}
         {ideas.length > 0 && (
           <Section icon={<Lightbulb size={11} className="text-warn" />} title="Idea connections">
             {ideas.map((s, i) => (

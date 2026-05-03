@@ -76,7 +76,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
   llmProvider: "gemini",
   llmApiKey: "",
-  llmModel: "gemini-2.0-flash",
+  llmModel: "gemini-2.5-flash",
   aiPanelSide: "right",
   vaultMode: "indexeddb",
 };

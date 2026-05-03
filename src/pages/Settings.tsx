@@ -92,7 +92,7 @@ export default function SettingsPage() {
                   llmProvider: p,
                   // Reset model to the default for the new provider so the user doesn't have
                   // to remember to change it.
-                  llmModel: p === "gemini" ? "gemini-2.0-flash" : p === "anthropic" ? "claude-sonnet-4-6" : "",
+                  llmModel: p === "gemini" ? "gemini-2.5-flash" : p === "anthropic" ? "claude-sonnet-4-6" : "",
                 });
               }}
               className="bg-bg-panel border border-border rounded-md px-2 py-1.5 text-sm"
@@ -106,7 +106,7 @@ export default function SettingsPage() {
             <input
               value={settings.llmModel}
               onChange={e => save({ llmModel: e.target.value })}
-              placeholder={settings.llmProvider === "gemini" ? "gemini-2.0-flash" : "claude-sonnet-4-6"}
+              placeholder={settings.llmProvider === "gemini" ? "gemini-2.5-flash" : "claude-sonnet-4-6"}
               className="bg-bg-panel border border-border rounded-md px-2 py-1.5 text-sm flex-1 max-w-xs"
             />
           </Row>
