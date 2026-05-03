@@ -1,9 +1,20 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
+import { flushSync } from "react-dom";
 import { addDays, startOfDay, dayKey } from "../../lib/parse/dates";
 import { useNotes } from "../../store/notes";
 import { CalendarDays, Check, AlertCircle, Circle, ZoomIn, ZoomOut, LocateFixed } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/cn";
+
+/** Wrap a state update in a View Transition for an automatic crossfade animation. */
+function withTransition(update: () => void) {
+  const doc = document as any;
+  if (typeof doc.startViewTransition === "function") {
+    doc.startViewTransition(() => flushSync(update));
+  } else {
+    update();
+  }
+}
 
 /**
  * Multi-level timeline. Zoom levels switch the time scale (not just cell size):
@@ -157,18 +168,18 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
           </div>
         </div>
         <div className="flex items-center gap-0.5">
-          <button onClick={() => setZoom(z => Math.max(0, z - 1))} disabled={zoom === 0} className="icon-btn h-7 w-7" title="Zoom in (smaller scale)"><ZoomIn size={13} /></button>
-          <button onClick={() => setZoom(z => Math.min(SCALES.length - 1, z + 1))} disabled={zoom === SCALES.length - 1} className="icon-btn h-7 w-7" title="Zoom out (larger scale)"><ZoomOut size={13} /></button>
+          <button onClick={() => withTransition(() => setZoom(Math.max(0, zoom - 1)))} disabled={zoom === 0} className="icon-btn h-7 w-7" title="Zoom in (smaller scale)"><ZoomIn size={13} /></button>
+          <button onClick={() => withTransition(() => setZoom(Math.min(SCALES.length - 1, zoom + 1)))} disabled={zoom === SCALES.length - 1} className="icon-btn h-7 w-7" title="Zoom out (larger scale)"><ZoomOut size={13} /></button>
           <button onClick={centerCurrent} className="icon-btn h-7 w-7" title="Center on today"><LocateFixed size={13} /></button>
           <button onClick={onOpenCalendar} className="icon-btn h-7 w-7" title="Open calendar"><CalendarDays size={13} /></button>
         </div>
       </div>
       <div ref={scrollerRef} className="overflow-x-auto pb-1 select-none cursor-grab active:cursor-grabbing">
-        <div className="relative h-24 min-w-max">
+        <div className="relative h-24 min-w-max" style={{ viewTransitionName: "timeline-rail" } as React.CSSProperties}>
           <div className="absolute left-0 right-0 top-1/2 h-px bg-border" />
-          <div className="flex items-center h-full">
-            {buckets.map((b, i) => (
-              <BucketDot key={i} bucket={b} cellW={spec.cellW} formatLabel={spec.formatLabel} />
+          <div key={spec.scale} className="flex items-center h-full timeline-rail-fade">
+            {buckets.map((b) => (
+              <BucketDot key={`${spec.scale}-${b.start.getTime()}`} bucket={b} cellW={spec.cellW} formatLabel={spec.formatLabel} />
             ))}
           </div>
         </div>
