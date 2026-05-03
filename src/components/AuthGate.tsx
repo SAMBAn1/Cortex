@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSupabase, isCloudMode } from "../lib/storage";
-import { Mail, Loader2, ArrowRight, LogOut } from "lucide-react";
+import { Mail, Loader2, ArrowRight } from "lucide-react";
 
 interface Props { children: React.ReactNode }
 
@@ -95,33 +95,16 @@ export default function AuthGate({ children }: Props) {
     );
   }
 
-  return (
-    <>
-      {children}
-      {cloud && userEmail && <SignOutCorner email={userEmail} />}
-    </>
-  );
+  // Expose for the Account section in Settings.
+  if (typeof window !== "undefined") (window as any).__userEmail = userEmail;
+  return <>{children}</>;
 }
 
-function SignOutCorner({ email }: { email: string }) {
-  const [open, setOpen] = useState(false);
-  async function out() {
-    const sb = getSupabase();
-    if (sb) await sb.client.auth.signOut();
-  }
-  return (
-    <div className="fixed bottom-3 left-3 z-40">
-      {open ? (
-        <div className="panel p-2 flex items-center gap-2 text-xs animate-fade-in">
-          <span className="text-fg-muted">{email}</span>
-          <button onClick={out} className="icon-btn h-7 px-2 text-danger hover:bg-danger/10 w-auto"><LogOut size={12} /> Sign out</button>
-          <button onClick={() => setOpen(false)} className="icon-btn h-7 w-7">×</button>
-        </div>
-      ) : (
-        <button onClick={() => setOpen(true)} className="icon-btn h-7 w-7 opacity-40 hover:opacity-100">
-          <LogOut size={12} />
-        </button>
-      )}
-    </div>
-  );
+export async function signOut() {
+  const sb = getSupabase();
+  if (sb) await sb.client.auth.signOut();
+}
+
+export function getUserEmail(): string | null {
+  return (typeof window !== "undefined" && (window as any).__userEmail) || null;
 }

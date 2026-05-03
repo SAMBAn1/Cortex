@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useSettings } from "../store/settings";
 import { useNotes } from "../store/notes";
-import { Eye, EyeOff, Sun, Moon, Download, Upload, Trash2, Sparkles, PanelLeft, PanelRight } from "lucide-react";
+import { Eye, EyeOff, Sun, Moon, Download, Upload, Trash2, Sparkles, PanelLeft, PanelRight, LogOut, User } from "lucide-react";
 import { cn } from "../lib/cn";
-import { getStorage } from "../lib/storage";
+import { getStorage, isCloudMode } from "../lib/storage";
+import { signOut, getUserEmail } from "../components/AuthGate";
 
 export default function SettingsPage() {
   const { settings, save } = useSettings();
@@ -47,6 +48,24 @@ export default function SettingsPage() {
           <h1 className="text-xl font-medium">Settings</h1>
           <p className="text-sm text-fg-muted">Configure your second brain.</p>
         </div>
+
+        {isCloudMode() && (
+          <Section title="Account" icon={<User size={14} className="text-accent" />}>
+            <Row label="Signed in as">
+              <span className="text-sm text-fg font-medium">{getUserEmail() || "—"}</span>
+            </Row>
+            <Row label="Session">
+              <button
+                onClick={async () => {
+                  if (confirm("Sign out of Cortex?")) await signOut();
+                }}
+                className="text-sm flex items-center gap-1.5 px-3 py-1.5 rounded-md text-danger hover:bg-danger/10"
+              >
+                <LogOut size={14} /> Sign out
+              </button>
+            </Row>
+          </Section>
+        )}
 
         <Section title="Appearance">
           <Row label="Theme">
