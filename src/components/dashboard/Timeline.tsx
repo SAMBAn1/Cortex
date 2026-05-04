@@ -43,27 +43,31 @@ interface ScaleSpec {
 
 const SCALES: ScaleSpec[] = [
   {
-    scale: "day", cellW: 56, pastCells: 30, futureCells: 30,
+    // Day: small initial range; expands infinitely as user scrolls toward either edge.
+    scale: "day", cellW: 56, pastCells: 60, futureCells: 60,
     formatLabel: (d, cur) => cur ? "TODAY" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
     periodStart: (d) => startOfDay(d),
     step: (d, n) => addDays(d, n),
   },
   {
-    scale: "week", cellW: 64, pastCells: 12, futureCells: 12,
+    // Week: ±5 years
+    scale: "week", cellW: 64, pastCells: 260, futureCells: 260,
     formatLabel: (d, cur) => cur ? "THIS WK" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
     periodStart: (d) => {
-      const x = startOfDay(d); x.setDate(x.getDate() - x.getDay()); return x; // Sunday-anchored week
+      const x = startOfDay(d); x.setDate(x.getDate() - x.getDay()); return x;
     },
     step: (d, n) => addDays(d, n * 7),
   },
   {
-    scale: "month", cellW: 72, pastCells: 12, futureCells: 12,
+    // Month: ±5 years
+    scale: "month", cellW: 72, pastCells: 60, futureCells: 60,
     formatLabel: (d, cur) => cur ? "THIS MO" : d.toLocaleDateString(undefined, { month: "short", year: "2-digit" }),
     periodStart: (d) => new Date(d.getFullYear(), d.getMonth(), 1),
     step: (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1),
   },
   {
-    scale: "quarter", cellW: 80, pastCells: 8, futureCells: 8,
+    // Quarter: ±5 years
+    scale: "quarter", cellW: 80, pastCells: 20, futureCells: 20,
     formatLabel: (d, cur) => {
       const q = Math.floor(d.getMonth() / 3) + 1;
       const yr = String(d.getFullYear()).slice(-2);
@@ -73,7 +77,8 @@ const SCALES: ScaleSpec[] = [
     step: (d, n) => new Date(d.getFullYear(), d.getMonth() + n * 3, 1),
   },
   {
-    scale: "year", cellW: 80, pastCells: 5, futureCells: 5,
+    // Year: ±25 years (so the line fills out comfortably; covers a working career)
+    scale: "year", cellW: 80, pastCells: 25, futureCells: 25,
     formatLabel: (d, cur) => cur ? "THIS YR" : String(d.getFullYear()),
     periodStart: (d) => new Date(d.getFullYear(), 0, 1),
     step: (d, n) => new Date(d.getFullYear() + n, 0, 1),
@@ -88,11 +93,21 @@ interface Bucket {
   completed: number; pending: number; overdue: number;
 }
 
+const EXTEND_BY = 60;       // cells to add when reaching an edge (day mode only)
+const EDGE_THRESHOLD = 400; // px from edge that triggers an extend
+
 export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const notes = useNotes(s => s.notes);
   const today = startOfDay();
   const [zoom, setZoom] = useState(0); // 0 = day
   const spec = SCALES[zoom];
+  // Per-scale extension counters for infinite scroll. Reset when zoom changes.
+  const [extPast, setExtPast] = useState(0);
+  const [extFuture, setExtFuture] = useState(0);
+  useEffect(() => { setExtPast(0); setExtFuture(0); }, [zoom]);
+
+  const totalPast = spec.pastCells + (spec.scale === "day" ? extPast : 0);
+  const totalFuture = spec.futureCells + (spec.scale === "day" ? extFuture : 0);
 
   // Pre-compute every dated item once; we'll group into buckets per scale.
   const allItems = useMemo<DueItem[]>(() => {
@@ -112,18 +127,21 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
   const buckets: Bucket[] = useMemo(() => {
     const currentStart = spec.periodStart(today);
     const result: Bucket[] = [];
-    for (let i = -spec.pastCells; i <= spec.futureCells; i++) {
+    for (let i = -totalPast; i <= totalFuture; i++) {
       const start = spec.step(currentStart, i);
-      const end = spec.step(start, 1); // exclusive
+      const end = spec.step(start, 1);
       result.push({
         start, end,
         isCurrent: i === 0,
         due: [], completed: 0, pending: 0, overdue: 0,
       });
     }
-    // Bucket items by which period they fall in
+    // Bucketing pass: O(items + buckets) via period-start key lookup.
+    const keyByStart = new Map<number, Bucket>();
+    for (const b of result) keyByStart.set(b.start.getTime(), b);
     for (const it of allItems) {
-      const bucket = result.find(b => it.date >= b.start && it.date < b.end);
+      const bucketStart = spec.periodStart(it.date).getTime();
+      const bucket = keyByStart.get(bucketStart);
       if (!bucket) continue;
       bucket.due.push(it);
       if (it.done) bucket.completed++;
@@ -131,7 +149,7 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
       else bucket.pending++;
     }
     return result;
-  }, [allItems, spec, today]);
+  }, [allItems, spec, today, totalPast, totalFuture]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -157,6 +175,32 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
+
+  // Day-mode infinite scroll: when the user nears either edge, extend the range.
+  // We compensate scrollLeft when prepending so the visible content doesn't jump.
+  useEffect(() => {
+    if (spec.scale !== "day") return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const fromLeft = el.scrollLeft;
+      const fromRight = el.scrollWidth - el.clientWidth - el.scrollLeft;
+      if (fromLeft < EDGE_THRESHOLD) {
+        const prevWidth = el.scrollWidth;
+        setExtPast(p => p + EXTEND_BY);
+        // After React commits more cells on the left, restore visual position.
+        requestAnimationFrame(() => {
+          if (!scrollerRef.current) return;
+          const delta = scrollerRef.current.scrollWidth - prevWidth;
+          scrollerRef.current.scrollLeft += delta;
+        });
+      } else if (fromRight < EDGE_THRESHOLD) {
+        setExtFuture(f => f + EXTEND_BY);
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [spec.scale]);
 
   return (
     <div className="panel p-3">
