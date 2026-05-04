@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Brain, RefreshCw, Sparkles, Send, Loader2, AlertCircle, CalendarDays, Lightbulb,
-  MessageSquare, Clock, FileText, User2,
+  MessageSquare, Clock, FileText, User2, FilePlus,
 } from "lucide-react";
 import { useNotes } from "../../store/notes";
 import { useSettings } from "../../store/settings";
@@ -15,28 +15,39 @@ type Tab = "summary" | "ideas" | "ask" | "recents";
 
 interface ChatMsg { role: "user" | "assistant"; content: string; }
 
+// Module-level cache: persists AI results across AIPanel unmount/remount within a session.
+// Only one auto-fire per page-load — navigating around the app won't re-burn quota.
+const cache: { brief: string; ideas: LLMSuggestion[]; chat: ChatMsg[]; autoFired: boolean } = {
+  brief: "",
+  ideas: [],
+  chat: [],
+  autoFired: false,
+};
+
 export default function AIPanel() {
   const notes = useNotes(s => s.notes);
   const { llm } = useSettings();
   const navigate = useNavigate();
 
-  // Persisted across the session so navigation back to dashboard remembers state.
   const [tab, setTab] = useState<Tab>("summary");
 
-  // Summary tab
-  const [briefSummary, setBriefSummary] = useState<string>("");
+  // Hydrate from module cache so navigation back to dashboard restores state.
+  const [briefSummary, setBriefSummary] = useState<string>(cache.brief);
   const [briefLoading, setBriefLoading] = useState(false);
 
-  // Ideas tab
-  const [ideas, setIdeas] = useState<LLMSuggestion[]>([]);
+  const [ideas, setIdeas] = useState<LLMSuggestion[]>(cache.ideas);
   const [ideasLoading, setIdeasLoading] = useState(false);
 
-  // Ask tab — multi-turn chat
-  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [chat, setChat] = useState<ChatMsg[]>(cache.chat);
   const [q, setQ] = useState("");
   const [askLoading, setAskLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+
+  // Mirror state to the cache on each change.
+  useEffect(() => { cache.brief = briefSummary; }, [briefSummary]);
+  useEffect(() => { cache.ideas = ideas; }, [ideas]);
+  useEffect(() => { cache.chat = chat; }, [chat]);
 
   const brief: DailyBrief = useMemo(
     () => computeDailyBrief(Object.values(notes)),
@@ -89,12 +100,32 @@ export default function AIPanel() {
     } finally { setAskLoading(false); }
   }
 
-  // Auto-fire is off — user clicks to load.
-  useEffect(() => { /* noop */ }, []);
+  // Auto-fire ONCE per page-load when LLM key is configured. The module-level cache
+  // ensures switching between dashboard and other pages doesn't re-fire requests.
+  useEffect(() => {
+    if (cache.autoFired) return;
+    if (!llm.available()) return;
+    if (Object.keys(notes).length === 0) return;
+    cache.autoFired = true;
+    if (!cache.brief) loadBriefSummary();
+    if (cache.ideas.length === 0) loadIdeas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [llm]);
 
   function findNoteId(title: string): string | undefined {
     const t = title.toLowerCase();
     return Object.values(notes).find(n => n.title.toLowerCase() === t)?.id;
+  }
+
+  // Create a new note pre-filled from an idea card and navigate to it.
+  const create = useNotes(s => s.create);
+  async function startIdeaAsNote(s: LLMSuggestion) {
+    const refs = s.noteIds && s.noteIds.length > 0
+      ? `\n\n---\nReferences: ${s.noteIds.map(t => `[[${t}]]`).join(", ")}\n`
+      : "";
+    const body = `# ${s.title}\n\n${s.body}${refs}`;
+    const n = await create({ body, folder: "ideas" });
+    navigate(`/notes/${n.id}`);
   }
 
   function refreshActive() {
@@ -176,6 +207,7 @@ export default function AIPanel() {
             onGenerate={loadIdeas}
             llmAvailable={llm.available()}
             onOpenNote={(id) => navigate(`/notes/${id}`)}
+            onStartAsNote={startIdeaAsNote}
             findNoteId={findNoteId}
           />
         )}
@@ -287,10 +319,11 @@ function SummaryTab({ brief, briefSummary, briefLoading, onGenerate, llmAvailabl
 }
 
 /* -------- Ideas tab -------- */
-function IdeasTab({ ideas, ideasLoading, onGenerate, llmAvailable, onOpenNote, findNoteId }: {
+function IdeasTab({ ideas, ideasLoading, onGenerate, llmAvailable, onOpenNote, onStartAsNote, findNoteId }: {
   ideas: LLMSuggestion[]; ideasLoading: boolean;
   onGenerate: () => void; llmAvailable: boolean;
   onOpenNote: (id: string) => void;
+  onStartAsNote: (s: LLMSuggestion) => void;
   findNoteId: (title: string) => string | undefined;
 }) {
   if (!llmAvailable) return null;
@@ -312,7 +345,7 @@ function IdeasTab({ ideas, ideasLoading, onGenerate, llmAvailable, onOpenNote, f
       )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {ideas.map((s, i) => (
-          <div key={i} className="p-3 rounded-lg bg-bg-panel/60 border border-border hover:border-accent/40 transition-colors">
+          <div key={i} className="p-3 rounded-lg bg-bg-panel/60 border border-border hover:border-accent/40 transition-colors group">
             <div className="text-sm font-medium flex items-center gap-1.5">
               <Sparkles size={12} className="text-accent" /> {s.title}
             </div>
@@ -334,6 +367,15 @@ function IdeasTab({ ideas, ideasLoading, onGenerate, llmAvailable, onOpenNote, f
                 })}
               </div>
             )}
+            <div className="mt-3 pt-2 border-t border-border flex justify-end">
+              <button
+                onClick={() => onStartAsNote(s)}
+                className="text-xs flex items-center gap-1 text-accent hover:bg-accent-muted/30 px-2 py-1 rounded"
+                title="Save this idea as a note in the 'ideas' folder"
+              >
+                <FilePlus size={12} /> Start as note
+              </button>
+            </div>
           </div>
         ))}
       </div>
