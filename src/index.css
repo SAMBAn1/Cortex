@@ -128,6 +128,25 @@
   from { opacity: 0; transform: translateY(2px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* CaptureSearch hero pulse — gentle breathing accent ring while idle, draws the eye */
+.capture-pulse {
+  animation: capture-breathe 3.6s ease-in-out infinite;
+  border-color: rgb(var(--accent) / 0.25);
+}
+@keyframes capture-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgb(var(--accent) / 0), 0 0 0 1px rgb(var(--accent) / 0.18);
+    border-color: rgb(var(--accent) / 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(var(--accent) / 0), 0 0 24px -6px rgb(var(--accent) / 0.45);
+    border-color: rgb(var(--accent) / 0.55);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .capture-pulse { animation: none; border-color: rgb(var(--accent) / 0.35); }
+}
 .cm-blockquote {
   border-left: 3px solid rgb(var(--accent));
   padding-left: 8px;

@@ -113,22 +113,31 @@ export default function CaptureSearch() {
   const showDropdown = focused && q.trim().length > 0;
   const createOptionActive = activeIdx === hits.length;
 
+  const isIdle = !focused && !q;
   return (
     <div ref={wrapRef} className="relative">
-      <div className="panel flex items-center gap-2 px-3 py-2.5 focus-within:border-accent transition-colors">
-        <Search size={16} className="text-fg-subtle shrink-0" />
+      <div
+        className={`panel flex items-center gap-3 px-4 py-3.5 transition-all relative ${
+          focused ? "border-accent shadow-glow" : isIdle ? "capture-pulse" : "border-border"
+        }`}
+      >
+        <Search size={18} className="text-fg-subtle shrink-0" />
         <input
           ref={inputRef}
           value={q}
           onChange={e => setQ(e.target.value)}
           onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
-          placeholder="Search notes or capture a thought…"
-          className="flex-1 bg-transparent outline-none text-sm placeholder:text-fg-subtle"
+          placeholder="Capture a thought, search a note, or just start typing…"
+          className="flex-1 bg-transparent outline-none text-base placeholder:text-fg-subtle"
         />
-        <kbd className="hidden md:inline text-[10px] px-1.5 py-0.5 rounded bg-bg-panel border border-border text-fg-subtle">
-          ⌘K
-        </kbd>
+        <div className="hidden md:flex items-center gap-1.5 text-[10px] text-fg-subtle">
+          <span>type to search · </span>
+          <kbd className="px-1.5 py-0.5 rounded bg-bg-panel border border-border">↵</kbd>
+          <span>to create · </span>
+          <kbd className="px-1.5 py-0.5 rounded bg-bg-panel border border-border">⌘K</kbd>
+        </div>
       </div>
 
       {showDropdown && (

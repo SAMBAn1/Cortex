@@ -153,14 +153,23 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
 
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  const centerCurrent = useCallback(() => {
+  // While a programmatic scroll is in flight (smooth-scroll OR initial center), suppress
+  // edge-extension so we don't trigger an infinite loop as scrollLeft passes through low values.
+  const suppressEdgeUntil = useRef(0);
+
+  const centerCurrent = useCallback((smooth = true) => {
     const el = scrollerRef.current;
     if (!el) return;
     const cur = el.querySelector<HTMLElement>('[data-current="1"]');
-    if (cur) el.scrollTo({ left: cur.offsetLeft - el.clientWidth / 2 + cur.clientWidth / 2, behavior: "smooth" });
+    if (!cur) return;
+    suppressEdgeUntil.current = Date.now() + (smooth ? 800 : 50);
+    const left = cur.offsetLeft - el.clientWidth / 2 + cur.clientWidth / 2;
+    el.scrollTo({ left, behavior: smooth ? "smooth" : "instant" as ScrollBehavior });
   }, []);
 
-  useEffect(() => { centerCurrent(); }, [zoom, centerCurrent]);
+  // Initial mount + zoom changes: instant center (no smooth animation) so the scroll
+  // event handler doesn't fire mid-animation in the edge zone.
+  useEffect(() => { centerCurrent(false); }, [zoom, centerCurrent]);
 
   // Wheel: vertical scroll → horizontal
   useEffect(() => {
@@ -177,25 +186,33 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
   }, []);
 
   // Day-mode infinite scroll: when the user nears either edge, extend the range.
-  // We compensate scrollLeft when prepending so the visible content doesn't jump.
   useEffect(() => {
     if (spec.scale !== "day") return;
     const el = scrollerRef.current;
     if (!el) return;
+    let pending = false; // dedupe: at most one extension per animation frame
     const onScroll = () => {
+      if (pending) return;
+      // Skip if a programmatic scroll is in flight.
+      if (Date.now() < suppressEdgeUntil.current) return;
       const fromLeft = el.scrollLeft;
       const fromRight = el.scrollWidth - el.clientWidth - el.scrollLeft;
       if (fromLeft < EDGE_THRESHOLD) {
+        pending = true;
         const prevWidth = el.scrollWidth;
+        suppressEdgeUntil.current = Date.now() + 200;
         setExtPast(p => p + EXTEND_BY);
-        // After React commits more cells on the left, restore visual position.
         requestAnimationFrame(() => {
-          if (!scrollerRef.current) return;
-          const delta = scrollerRef.current.scrollWidth - prevWidth;
-          scrollerRef.current.scrollLeft += delta;
+          if (scrollerRef.current) {
+            scrollerRef.current.scrollLeft += scrollerRef.current.scrollWidth - prevWidth;
+          }
+          pending = false;
         });
       } else if (fromRight < EDGE_THRESHOLD) {
+        pending = true;
+        suppressEdgeUntil.current = Date.now() + 200;
         setExtFuture(f => f + EXTEND_BY);
+        requestAnimationFrame(() => { pending = false; });
       }
     };
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -214,7 +231,7 @@ export default function Timeline({ onOpenCalendar }: { onOpenCalendar: () => voi
         <div className="flex items-center gap-0.5">
           <button onClick={() => withTransition(() => setZoom(Math.max(0, zoom - 1)))} disabled={zoom === 0} className="icon-btn h-7 w-7" title="Zoom in (smaller scale)"><ZoomIn size={13} /></button>
           <button onClick={() => withTransition(() => setZoom(Math.min(SCALES.length - 1, zoom + 1)))} disabled={zoom === SCALES.length - 1} className="icon-btn h-7 w-7" title="Zoom out (larger scale)"><ZoomOut size={13} /></button>
-          <button onClick={centerCurrent} className="icon-btn h-7 w-7" title="Center on today"><LocateFixed size={13} /></button>
+          <button onClick={() => centerCurrent(true)} className="icon-btn h-7 w-7" title="Center on today"><LocateFixed size={13} /></button>
           <button onClick={onOpenCalendar} className="icon-btn h-7 w-7" title="Open calendar"><CalendarDays size={13} /></button>
         </div>
       </div>
