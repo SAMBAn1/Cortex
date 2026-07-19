@@ -13,22 +13,36 @@ export default function AuthGate({ children }: Props) {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!cloud) return;
     const sb = getSupabase();
     if (!sb) return;
+    let cancelled = false;
     (async () => {
-      const { data } = await sb.client.auth.getSession();
-      setSignedIn(!!data.session);
-      setUserEmail(data.session?.user.email ?? null);
-      setReady(true);
+      try {
+        const timeout = new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("timeout")), 8000)
+        );
+        const { data } = await Promise.race([sb.client.auth.getSession(), timeout]) as Awaited<ReturnType<typeof sb.client.auth.getSession>>;
+        if (cancelled) return;
+        setSignedIn(!!data.session);
+        setUserEmail(data.session?.user.email ?? null);
+        setReady(true);
+      } catch (e: any) {
+        if (cancelled) return;
+        setBackendError(e?.message === "timeout"
+          ? "Couldn't reach the backend (timed out). It may be waking up — try refreshing in a minute."
+          : `Couldn't reach the backend: ${e?.message ?? "unknown error"}`);
+        setReady(true);
+      }
     })();
     const { data: sub } = sb.client.auth.onAuthStateChange((_e, session) => {
       setSignedIn(!!session);
       setUserEmail(session?.user.email ?? null);
     });
-    return () => sub.subscription.unsubscribe();
+    return () => { cancelled = true; sub.subscription.unsubscribe(); };
   }, [cloud]);
 
   async function sendLink() {
@@ -46,6 +60,23 @@ export default function AuthGate({ children }: Props) {
 
   if (!ready) {
     return <div className="h-full flex items-center justify-center text-fg-subtle text-sm">Loading…</div>;
+  }
+
+  if (backendError) {
+    return (
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="w-full max-w-sm panel p-6 space-y-3 text-sm">
+          <div className="font-medium">Cortex is offline</div>
+          <p className="text-fg-muted">{backendError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full text-sm px-3 py-2 rounded-md bg-accent text-white hover:opacity-90"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!signedIn) {
