@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cortex — a second brain that thinks with you</title>
+  <meta name="description" content="Cortex is a note-taking app built for product managers. Capture the day, watch commitments surface on a timeline, and let an LLM surface the ideas you left on the table." />
+  <link rel="icon" type="image/svg+xml" href="../public/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" />
+  <style>
+    :root {
+      --bg: hsl(220, 20%, 4%);
+      --bg-elev: hsl(220, 18%, 8%);
+      --bg-elev-2: hsl(220, 18%, 10%);
+      --fg: hsl(40, 20%, 92%);
+      --fg-muted: hsl(40, 12%, 65%);
+      --fg-subtle: hsl(220, 10%, 50%);
+      --border: hsl(220, 15%, 16%);
+      --border-strong: hsl(220, 15%, 22%);
+      --accent: hsl(142, 72%, 45%);
+      --accent-2: hsl(160, 65%, 40%);
+      --gradient: linear-gradient(135deg, hsl(142, 72%, 45%), hsl(160, 65%, 40%));
+      --radius: 0.5rem;
+      --font-display: 'DM Serif Display', Georgia, serif;
+      --font-body: 'Space Grotesk', system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: hsl(142, 72%, 45%, 0.3); }
+
+    /* Drifting grid background — matches portfolio motif */
+    .grid-bg {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background-image:
+        linear-gradient(hsl(142, 72%, 45%, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, hsl(142, 72%, 45%, 0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+      animation: grid-drift 12s linear infinite;
+      mask-image: radial-gradient(ellipse at 50% 30%, black 40%, transparent 80%);
+    }
+    @keyframes grid-drift {
+      from { background-position: 0 0; }
+      to { background-position: 48px 48px; }
+    }
+
+    .container { max-width: 1080px; margin: 0 auto; padding: 0 clamp(1.25rem, 4vw, 2rem); }
+
+    /* Nav */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 50;
+      backdrop-filter: blur(12px);
+      background: hsl(220, 20%, 4%, 0.7);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+    nav.scrolled { border-bottom-color: var(--border); }
+    nav .inner {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.9rem clamp(1.25rem, 4vw, 2rem);
+      max-width: 1080px; margin: 0 auto;
+    }
+    nav .brand { display: flex; align-items: center; gap: 0.55rem; font-family: var(--font-display); font-size: 1.15rem; }
+    nav .brand-mark {
+      width: 26px; height: 26px; border-radius: 6px;
+      background: var(--gradient);
+      display: flex; align-items: center; justify-content: center;
+      color: hsl(220, 20%, 4%); font-weight: 600; font-family: var(--font-body); font-size: 0.85rem;
+    }
+    nav .links { display: flex; gap: 1.5rem; align-items: center; font-size: 0.9rem; }
+    nav .links a { color: var(--fg-muted); transition: color 0.2s; }
+    nav .links a:hover { color: var(--fg); }
+    nav .links a.cta {
+      color: var(--bg);
+      background: var(--accent);
+      padding: 0.45rem 0.9rem;
+      border-radius: var(--radius);
+      font-weight: 500;
+    }
+    nav .links a.cta:hover { opacity: 0.9; color: var(--bg); }
+    @media (max-width: 600px) { nav .links .hide-mobile { display: none; } }
+
+    /* Hero */
+    .hero {
+      padding: 9rem 0 6rem;
+      text-align: center;
+    }
+    .hero .eyebrow {
+      display: inline-block;
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 1.75rem;
+      padding: 0.35rem 0.85rem;
+      border: 1px solid hsl(142, 72%, 45%, 0.25);
+      border-radius: 999px;
+      background: hsl(142, 72%, 45%, 0.06);
+    }
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4.75rem);
+      line-height: 1.05;
+      margin-bottom: 1.5rem;
+    }
+    .hero h1 .accent {
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-style: italic;
+    }
+    .hero .subtitle {
+      font-size: clamp(1.05rem, 2vw, 1.25rem);
+      color: var(--fg-muted);
+      max-width: 640px;
+      margin: 0 auto 2.5rem;
+    }
+    .hero .ctas { display: flex; gap: 0.85rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.75rem 1.35rem;
+      border-radius: var(--radius);
+      font-size: 0.95rem;
+      font-weight: 500;
+      border: 1px solid transparent;
+      transition: transform 0.15s, border-color 0.15s, background 0.15s;
+      cursor: pointer;
+    }
+    .btn-primary { background: var(--accent); color: var(--bg); }
+    .btn-primary:hover { transform: translateY(-1px); background: hsl(142, 72%, 50%); }
+    .btn-ghost { background: transparent; border-color: var(--border-strong); color: var(--fg); }
+    .btn-ghost:hover { border-color: var(--fg-muted); }
+    .btn svg { width: 16px; height: 16px; }
+
+    /* Section shell */
+    section { padding: 5.5rem 0; position: relative; }
+    section .kicker {
+      font-size: 0.78rem; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 0.85rem; font-weight: 500;
+    }
+    section h2 {
+      font-size: clamp(1.9rem, 4vw, 2.75rem);
+      margin-bottom: 1.25rem;
+      max-width: 780px;
+    }
+    section .lede { color: var(--fg-muted); font-size: 1.05rem; max-width: 680px; margin-bottom: 3rem; }
+
+    /* Why */
+    .why p {
+      color: var(--fg-muted);
+      max-width: 680px;
+      margin-bottom: 1rem;
+      font-size: 1.05rem;
+    }
+    .why p em { color: var(--fg); font-style: italic; }
+
+    /* Feature grid */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature {
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) * 1.5);
+      padding: 1.75rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .feature:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+    .feature .icon {
+      width: 34px; height: 34px;
+      border-radius: var(--radius);
+      background: hsl(142, 72%, 45%, 0.12);
+      color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 1rem;
+    }
+    .feature .icon svg { width: 18px; height: 18px; }
+    .feature h3 { font-family: var(--font-body); font-weight: 500; font-size: 1.05rem; margin-bottom: 0.5rem; letter-spacing: 0; }
+    .feature p { color: var(--fg-muted); font-size: 0.92rem; line-height: 1.55; }
+
+    /* Screenshots */
+    .shots { display: grid; gap: 1.25rem; }
+    .shots figure {
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) * 1.5);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .shots figure:hover { border-color: var(--border-strong); }
+    .shots img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-bottom: 1px solid var(--border);
+    }
+    .shots figcaption {
+      padding: 1rem 1.25rem;
+      color: var(--fg-muted);
+      font-size: 0.9rem;
+    }
+    .shots figcaption strong {
+      display: block;
+      color: var(--fg);
+      font-weight: 500;
+      margin-bottom: 0.15rem;
+    }
+
+    /* Stack strip */
+    .stack {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .stack span {
+      padding: 0.35rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.82rem;
+      color: var(--fg-muted);
+      background: var(--bg-elev);
+    }
+    .arch {
+      margin-top: 2rem;
+      padding: 1.5rem;
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) * 1.5);
+      font-family: 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 0.85rem;
+      color: var(--fg-muted);
+      line-height: 1.75;
+      overflow-x: auto;
+    }
+    .arch .arrow { color: var(--accent); }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 0 2.5rem;
+      margin-top: 3rem;
+    }
+    footer .row {
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1.5rem;
+    }
+    footer p { color: var(--fg-subtle); font-size: 0.87rem; }
+    footer .links { display: flex; gap: 1.5rem; }
+    footer .links a { color: var(--fg-muted); font-size: 0.9rem; }
+    footer .links a:hover { color: var(--accent); }
+
+    /* Fade-in on scroll */
+    .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s ease; }
+    .reveal.in { opacity: 1; transform: none; }
+  </style>
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <nav id="nav">
+    <div class="inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark">C</span>
+        <span>Cortex</span>
+      </a>
+      <div class="links">
+        <a href="#why" class="hide-mobile">Why</a>
+        <a href="#features" class="hide-mobile">Features</a>
+        <a href="#stack" class="hide-mobile">Built with</a>
+        <a href="https://github.com/SAMBAn1/Cortex" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://cortex-psi.vercel.app" class="cta" target="_blank" rel="noopener">Open app →</a>
+      </div>
+    </div>
+  </nav>
+
+  <header id="top" class="hero container">
+    <div class="eyebrow">A note app for product managers</div>
+    <h1>A second brain that <span class="accent">thinks with you.</span></h1>
+    <p class="subtitle">Capture the day in plain markdown. Watch commitments surface on a timeline. Let an LLM find the ideas you left on the table.</p>
+    <div class="ctas">
+      <a class="btn btn-primary" href="https://cortex-psi.vercel.app" target="_blank" rel="noopener">
+        Open the app
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/SAMBAn1/Cortex" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1.1 1.9 2.9 1.4 3.6 1 .1-.8.4-1.4.8-1.7-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.8.1 3.2.8.8 1.3 1.9 1.3 3.1 0 4.7-2.8 5.7-5.5 6 .4.3.8 1 .8 2.1v3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg>
+        View source
+      </a>
+    </div>
+  </header>
+
+  <section id="why" class="why container reveal">
+    <div class="kicker">Why it exists</div>
+    <h2>Signal lives in noise. Most notes apps only give you the noise.</h2>
+    <p>As a PM, my day is a stream of half-thoughts: a customer said something in a call, a metric moved, a teammate flagged a risk on Slack, an idea landed at 11pm. Linear notes apps let me <em>write</em> that stream. They don't help me <em>see</em> it.</p>
+    <p>Cortex was built to close that gap. Every note is dated. Every commitment I write in plain English — <em>"review with Maya next Tuesday at 4pm"</em> — gets parsed and lands on a timeline. Every wikilink and tag becomes an edge in a graph, so the shape of my thinking is visible, not buried.</p>
+    <p>Then an LLM sits on top: it summarises the week, surfaces ideas I've drafted but haven't scheduled, and lets me ask questions of my own notes. It's not a chatbot glued to a text editor — it's an assistant that already knows what I've been working on.</p>
+  </section>
+
+  <section id="features" class="container reveal">
+    <div class="kicker">What it does</div>
+    <h2>Six things it does well.</h2>
+    <p class="lede">Built around the way a working PM actually captures information — fast, dated, connected, and searchable by shape as well as text.</p>
+    <div class="features">
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></div>
+        <h3>Quick capture</h3>
+        <p>One keystroke opens a global capture bar. Type a thought, hit Enter, keep moving. No modals, no forced folder pick.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
+        <h3>Smart date parsing</h3>
+        <p>Write "Friday", "next Tuesday at 4pm", or "in 3 weeks" anywhere. Cortex extracts the commitment and puts it on the timeline and calendar.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div>
+        <h3>Timeline you can zoom</h3>
+        <p>Zoom from day to year with a smooth crossfade. Every dated commitment becomes a dot, so a busy week is visible at a glance.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 9V4M12 15v5M9 12H4M15 12h5"/></svg></div>
+        <h3>Knowledge graph</h3>
+        <p>Wikilinks and tags become edges. Filter by dates or tags. The graph shows how your work actually clusters, not how you filed it.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 0 0-5 5c0 2 1 3 1 5 0 1-1 2-1 4 0 3 2 4 5 4s5-1 5-4c0-2-1-3-1-4 0-2 1-3 1-5a5 5 0 0 0-5-5z"/><path d="M10 20h4"/></svg></div>
+        <h3>AI assistant, grounded</h3>
+        <p>Summary, Ideas, and Ask tabs — all grounded in your own notes. Works with Anthropic, Gemini (free tier), or OpenAI. Your choice, your key.</p>
+      </div>
+      <div class="feature">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><circle cx="12" cy="4" r="1"/></svg></div>
+        <h3>Local-first, cloud-optional</h3>
+        <p>Runs entirely in your browser on IndexedDB. Add a Supabase project and it syncs across devices — same code, different backend.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screenshots" class="container reveal">
+    <div class="kicker">A tour</div>
+    <h2>What it looks like on a Sunday afternoon of PM work.</h2>
+    <p class="lede">Seeded with a plausible week — roadmap, customer interviews, a pricing experiment, a 1:1 with Maya, a stray late-night idea.</p>
+    <div class="shots">
+      <figure>
+        <img src="screenshots/01-dashboard.png" alt="Cortex dashboard with a timeline of commitments, a global capture bar, and an AI panel with Overdue, Today, and Upcoming buckets." />
+        <figcaption>
+          <strong>Dashboard</strong>
+          Timeline at the top, capture in the middle, AI panel underneath. Everything you need in one glance.
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/03-note-editor.png" alt="Cortex note editor showing a Roadmap Q3 markdown note with wikilinks and parsed dates rendered as chips at the bottom." />
+        <figcaption>
+          <strong>The editor</strong>
+          Markdown with live preview. Wikilinks become clickable. Dates parsed from prose show up as chips — a build-in receipt for every commitment.
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/04-calendar.png" alt="Cortex month calendar with colored dots on days that carry commitments, and a sidebar listing today's items." />
+        <figcaption>
+          <strong>Calendar</strong>
+          The month view of everything you dropped into notes. Dots on busy days. Sidebar for today.
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/05-graph.png" alt="Force-directed graph of notes, tags, and dates connected by edges — Cortex knowledge graph view." />
+        <figcaption>
+          <strong>Graph</strong>
+          Notes, tags, and dates as nodes. Wikilinks as edges. Toggle to see just tags, just dates, or the whole shape.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="stack" class="container reveal">
+    <div class="kicker">How it's built</div>
+    <h2>A modern SPA with a swappable storage layer.</h2>
+    <p class="lede">Nothing exotic — deliberately. The interesting choices are in the small pieces: the date parser, the storage adapter interface, and how the AI panel stays grounded.</p>
+    <div class="stack">
+      <span>React 19</span>
+      <span>Vite</span>
+      <span>TypeScript</span>
+      <span>Tailwind CSS</span>
+      <span>Zustand</span>
+      <span>CodeMirror 6</span>
+      <span>chrono-node</span>
+      <span>Cytoscape · react-force-graph</span>
+      <span>IndexedDB (idb)</span>
+      <span>Supabase (auth + Postgres + RLS)</span>
+      <span>Anthropic · Gemini · OpenAI</span>
+      <span>Playwright</span>
+      <span>Vercel</span>
+    </div>
+    <div class="arch">
+      UI  <span class="arrow">→</span>  Zustand store  <span class="arrow">→</span>  StorageAdapter interface<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── IdbAdapter    (local, offline)<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── SupabaseAdapter  (Postgres + RLS scoped to auth.uid)
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <div class="row">
+        <p>Built by <a href="https://www.sambitxsamba.com" style="color: var(--fg-muted);">Sambit Samantaray</a> · 2026</p>
+        <div class="links">
+          <a href="https://cortex-psi.vercel.app" target="_blank" rel="noopener">Open app</a>
+          <a href="https://github.com/SAMBAn1/Cortex" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://www.sambitxsamba.com" target="_blank" rel="noopener">Portfolio</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Nav shadow on scroll
+    const nav = document.getElementById('nav');
+    const onScroll = () => nav.classList.toggle('scrolled', window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    // Reveal on intersection
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  </script>
+</body>
+</html>
